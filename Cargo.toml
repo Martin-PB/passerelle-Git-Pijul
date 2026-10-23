@@ -1,0 +1,15 @@
+[package]
+name = "passerelle-git-pijul"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Git <-> Pijul gateway: turn conflicting Git PRs into Pijul changes, resolve conflicts (auto or by an operator), merge back into Git"
+repository = "https://github.com/Martin-PB/passerelle-Git-Pijul"
+keywords = ["git", "pijul", "merge", "gateway", "vcs"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
