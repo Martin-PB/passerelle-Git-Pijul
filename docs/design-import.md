@@ -526,3 +526,15 @@ Un lemme supplémentaire, `ancestor_rank_lt_of_ne`, établit que deux commits di
 ### Précision sémantique sur les conflits P0
 
 Le modèle Lean précise désormais que Git ne stocke pas un prédicat de conflit intrinsèque sur chaque commit. `gitConflict` doit représenter le résultat d'une tentative de merge explicitement définie par le harnais ; `pijulConflict` doit représenter le résultat de l'opération Pijul correspondante. L'équivalence de ces observations ne devient un contrat testable qu'une fois cette correspondance d'opérations définie. Il serait incorrect d'interpréter le prédicat abstrait comme une preuve générale d'équivalence des notions de conflit des deux VCS.
+
+## 12. Progrès de la preuve Lean — composition locale vers globale
+
+La spécification `formal/lean/Bridge/Spec.lean` contient maintenant trois obligations prouvées dans le modèle :
+
+- `GitHistory.ancestry_antisymmetric` : le rang strict interdit qu'un commit distinct soit ancêtre l'un de l'autre dans les deux sens ;
+- `singleton_delta_unique` et `singleton_delta_same_mapping` : une observation de différence d'ensembles satisfaisant le contrat singleton identifie un seul change, et deux observations avec mêmes ensembles avant/après ne peuvent produire deux mappings différents ;
+- `tree_refinement_along_ancestry` : si l'état de base respecte la relation d'arbres et si chaque étape parent→enfant préserve localement cette relation, alors elle est préservée le long du chemin d'ascendance.
+
+Ces théorèmes ne sont pas des axiomes de correction du binaire. En particulier, `TreeRefinement.edgePreserves` est une obligation que le traducteur concret devra démontrer ou justifier par un contrat de raffinement vérifié. Le théorème de composition montre comment une preuve locale peut se propager, mais ne prouve pas encore que `pijul git` satisfait cette obligation. Les listes avant/après du mapping doivent aussi être canoniques et représenter des ensembles ; cette précondition reste explicitement à garantir par l'implémentation.
+
+Le protocole de test et de preuve local est consigné dans [`docs/local-verification.md`](local-verification.md), exécuté par [`scripts/verify-local.sh`](../scripts/verify-local.sh). Tant que le build n'a pas été lancé sur Linux, ces nouveaux théorèmes sont **écrits mais non validés par Lean**.
