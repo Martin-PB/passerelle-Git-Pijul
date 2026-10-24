@@ -362,22 +362,23 @@ pub fn translate_pr(
 /// Export the integration channel back to a Git branch.
 pub fn export_integration(
     workdir: &Path,
+    git_mirror: &Path,
     ledger: &mut Ledger,
     mode: ExportMode,
     base: &Base,
     prs: &[PullRequest],
 ) -> std::io::Result<String> {
-    let _ = (workdir, ledger, mode, base, prs);
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Pijul-to-Git export is not implemented; refusing to return a placeholder branch name",
-    ))
-}
-
-#[allow(dead_code)]
-fn now_iso() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("unix:{}", d.as_secs()))
-        .unwrap_or_else(|_| "unix:0".into())
+    let _ = (ledger, prs);
+    match mode {
+        ExportMode::Linear => crate::export::export_linear_with_pijul_export(
+            &workdir.join("pijul"),
+            git_mirror,
+            &base.sha,
+            &workdir.join("scratch"),
+        ),
+        ExportMode::MergeTopology => Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "merge-topology export is not implemented; only validated linear export is available",
+        )),
+    }
 }
