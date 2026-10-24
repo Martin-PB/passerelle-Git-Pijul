@@ -520,3 +520,5 @@ lake build Bridge
 Le pin est volontairement explicite pour rendre les résultats reproductibles ; il pourra être actualisé dans une modification dédiée après validation de la compilation. La présence de cette configuration ne signifie pas que le build est déjà passé : il n'a pas été exécuté dans cet environnement.
 
 **Limite de méthode à conserver :** `P0Equivalent` est actuellement un contrat d'observation, pas encore une relation de raffinement démontrée. En particulier, `gitConflict` et `pijulConflict` sont des prédicats fournis par l'observateur : tant qu'on ne définit pas comment ils sont dérivés des états et de l'interface réelle, l'équivalence ne prouve rien sur le comportement concret du pont. La prochaine étape doit spécifier ces observations et les hypothèses de confiance, puis seulement formuler un théorème reliant l'exécution au contrat.
+
+Les lois de `TreeEq` sont aussi énoncées comme théorèmes (`treeEq_refl`, `treeEq_symm`, `treeEq_trans`) plutôt que supposées. Elles sont simples mais établissent les bases algébriques de la relation d'égalité des arbres. Elles restent à confirmer par `lake build Bridge`.
