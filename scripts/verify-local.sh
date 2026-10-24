@@ -109,7 +109,7 @@ fi
 # before this runner can claim it was exercised.
 if [[ "${RUN_SIBLING_RERUN_TEST:-0}" == "1" ]]; then
   if cargo test --test roundtrip -- --list 2>&1 | tee "$LOG_DIR/roundtrip-test-list.log" | grep -Eiq 'sibling.*rerun|rerun.*sibling'; then
-    run_check sibling-branch-rerun cargo test --test roundtrip -- --nocapture sibling
+    run_check sibling-branch-rerun cargo test --test roundtrip -- --ignored --nocapture sibling
   else
     say "RESULT: FAIL sibling-branch-rerun — aucun test explicitement nommé pour branches sœurs + rerun n'a été trouvé dans tests/roundtrip.rs."
     FAIL=$((FAIL + 1))
