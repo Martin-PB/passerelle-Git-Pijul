@@ -148,21 +148,31 @@ structure PatchModel where
 
 /-! ## 3. P0 equivalence criteria: content and conflicts
 
-P0 is restricted to synthetic repositories. Its acceptance criterion is
-content equivalence plus conflict-observation equivalence. Git commit topology
-is a separate objective and must not be smuggled into P0's definition.
-These predicates define the target contract; they do not assert that the
-current importer/exporter satisfies it. -/
+P0 is restricted to synthetic repositories. Its candidate acceptance criterion
+is content equivalence plus equivalence of conflict observations for explicitly
+paired merge/apply scenarios. A Git commit does not intrinsically carry a
+conflict predicate: gitConflict must mean the result of a specified merge
+attempt in the test harness, and pijulConflict the result of the corresponding
+specified Pijul operation. Those operations and their pairing must be defined
+before this criterion can support a correctness claim.
+
+Git commit topology is a separate objective and must not be smuggled into
+P0's definition. These predicates define a target contract; they do not assert
+that the current importer/exporter satisfies it. -/
 
 structure P0Observation where
   imported : Oid → Prop
   gitTree : Oid → GitTree
   pijulTree : Oid → GitTree
+  /-- Conflict result of a specified Git merge scenario, not an intrinsic
+      property of a commit. -/
   gitConflict : Oid → Oid → Prop
+  /-- Conflict result of the corresponding specified Pijul operation. -/
   pijulConflict : Oid → Oid → Prop
 
 /-- P0 preserves every imported commit's materialized content and preserves
-    the conflict relation observed for imported commit pairs. -/
+    the observed conflict result for each pair of imported tips. The test
+    harness must define which operation each pair denotes. -/
 def P0Equivalent (o : P0Observation) : Prop :=
   (∀ c, o.imported c → TreeEq (o.gitTree c) (o.pijulTree c)) ∧
   (∀ a b, o.imported a → o.imported b →
