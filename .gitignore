@@ -5,3 +5,4 @@ Cargo.lock
 .env
 .gateway-work
 gateway-ledger.json
+.local-verification/
