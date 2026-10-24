@@ -102,6 +102,17 @@ theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
   | @step ancestor parent child hprev edge ih =>
       exact Nat.le_trans ih (Nat.le_of_lt (parent_edge_rank_lt h edge))
 
+/-- A non-reflexive ancestor path strictly increases rank. This rules out a
+    cycle in the represented ancestry relation, not just in direct parent edges. -/
+theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
+    (ha : Ancestor h a d) (hne : a ≠ d) : h.rank a < h.rank d := by
+  cases ha with
+  | refl x =>
+      exact False.elim (hne rfl)
+  | @step ancestor parent child hprev edge =>
+      exact Nat.lt_of_le_of_lt (ancestor_rank_le h hprev)
+        (parent_edge_rank_lt h edge)
+
 /-- A commit is in the base-to-head range iff base is its ancestor and it
     is itself an ancestor of head. -/
 def InRange (h : GitHistory) (base head commit : Oid) : Prop :=
