@@ -411,3 +411,62 @@ passe en revue les architectures des VCS et leurs compromis
 (https://arxiv.org/abs/1405.3496). Ces sources motivent de conserver Pijul comme
 autorité pour produire les changes ; elles ne démontrent pas le comportement
 précis de beta.24, qui reste à tester.
+
+
+## 11. Nouvelle exigence d'architecture : correction formelle, pas seulement tests (24/10/2026)
+
+Les tests synthétiques peuvent réfuter une conception et détecter des régressions ; ils ne démontrent pas la correction générale de la traduction. La passerelle doit donc définir une sémantique précise et établir une preuve de raffinement entre l'implémentation et cette sémantique. Aucun test réussi ne doit être présenté comme preuve mathématique.
+
+### Outil recommandé : Lean 4 pour le modèle et les preuves
+
+Lean est retenu comme premier candidat parce qu'il combine un noyau de vérification des preuves et un langage fonctionnel utilisable pour écrire un cœur exécutable. Cette décision ne signifie pas que l'usage de Lean suffit à rendre le système correct : la spécification, les hypothèses, la relation au code exécuté et la frontière de confiance doivent elles-mêmes être explicites.
+
+Références :
+- Manuel officiel Lean : https://lean-lang.org/doc/reference/latest/
+- FAQ Lean sur le noyau, les preuves et la base de confiance : https://lean-lang.org/faq/
+- Aeneas, vérification du Rust par traduction fonctionnelle (ICFP 2022) : https://doi.org/10.1145/3547647
+- Documentation hax : https://hax.cryspen.com/manual/
+
+Aeneas/hax sont des candidats pour relier le Rust réel à des obligations de preuve, mais leur sous-ensemble pris en charge et la fidélité de l'extraction doivent être audités sur ce crate. Une extraction réussie n'est pas, à elle seule, la preuve de nos propriétés métier.
+
+### Modèle formel à construire
+
+Le modèle doit être indépendant des détails du CLI et définir au minimum :
+
+1. **DAG Git** : commits, arbres, blobs, parents multiples, ancêtres, branches et commits inaccessibles.
+2. **Sémantique Pijul abstraite** : changements, identité, dépendances, contextes et conflits ; ne pas assimiler un change à un diff textuel.
+3. **Relation de traduction** : quelles représentations Pijul sont admissibles pour un historique Git donné, et quelle information doit être préservée.
+4. **État du protocole** : refs épinglées, ledger, channels, imports partiels, erreurs, reruns et publication de refs.
+5. **Frontière d'observation** : ce que le programme peut réellement lire du CLI/API Pijul et les garanties exigées de cette interface.
+
+### Théorèmes cibles
+
+- **Sûreté de graphe** : toute dépendance produite est justifiée par la relation source spécifiée ; aucun parent ou ancêtre nécessaire n'est perdu.
+- **Fidélité de traduction** : le résultat satisfait la relation de raffinement définie entre l'historique Git et les changes Pijul ; la simple égalité des arbres n'est pas suffisante.
+- **Préservation des conflits** : les conflits du modèle source ne sont ni supprimés ni résolus implicitement par la passerelle.
+- **Correction du ledger** : un OID ne peut être associé à deux changes incompatibles ; toute correspondance publiée est justifiée.
+- **Idempotence** : réexécuter une opération valide ne modifie pas le résultat abstrait, hormis les métadonnées explicitement exclues du contrat.
+- **Publication sûre** : une ref de sortie n'est publiée que si tous les prérequis formels sont satisfaits ; une erreur externe ne peut être assimilée à un résultat propre ou réussi.
+
+Ces théorèmes devront être formulés précisément avant de choisir l'algorithme. Ils ne peuvent pas reposer sur des axiomes qui réaffirment simplement les propriétés à démontrer.
+
+### Point critique : l'importateur Pijul ne peut pas rester une boîte noire sans contrat
+
+Si la passerelle appelle `pijul git` et suppose que celui-ci produit les bons changes, Lean ne prouvera que la correction de l'orchestration **conditionnellement** à cette hypothèse. Pour une preuve de bout en bout, il faudra soit :
+
+- formaliser la sémantique pertinente de l'importateur et prouver sa conformité ;
+- remplacer le chemin critique par un cœur dont l'implémentation et la spécification peuvent être reliées par une preuve ;
+- ou expliciter et réduire la frontière de confiance à une API Pijul étroite, dont le contrat est lui-même vérifié et dont les hypothèses ne sont pas présentées comme des théorèmes.
+
+Réimplémenter à la main le format interne des changes à partir de diffs Git serait une mauvaise réponse : cela déplace le problème sans fournir de preuve.
+
+### Plan de travail
+
+1. Écrire une spécification Lean minimale de DAG Git, de changes abstraits et de relation de traduction.
+2. Prouver les invariants de graphe, de ledger, d'idempotence et de publication avant de choisir entre DAG synthétique, imports isolés ou adaptation upstream.
+3. Formaliser explicitement la propriété de fidélité aux changements et conflits Pijul, et identifier quelles définitions peuvent être dérivées du modèle upstream plutôt que réinventées.
+4. Étudier si Aeneas ou hax peut extraire les fonctions Rust pures de la passerelle et établir la correspondance entre code exécuté et fonctions spécifiées.
+5. Auditer séparément les frontières Git/Pijul/OS : résultats de commandes, erreurs, données externes et version exacte de Pijul. Les appels externes non vérifiés restent des hypothèses.
+6. Garder les tests comme contre-exemples et vérifications d'intégration, jamais comme substituts aux preuves.
+
+**Statut : proposition d'architecture formelle ; aucune preuve n'a encore été écrite ou vérifiée.** Le blocage multi-branches ne doit pas être déclaré résolu tant que le modèle, les obligations de preuve et la relation à l'implémentation ne sont pas établis.
