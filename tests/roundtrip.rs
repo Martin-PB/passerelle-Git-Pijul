@@ -54,6 +54,7 @@ fn snapshot_text_is_deterministic() {
     std::fs::create_dir_all(root.join("src")).expect("mkdir src");
     std::fs::write(root.join("README.md"), "hello\n").expect("write README");
     std::fs::write(root.join("src/lib.rs"), "fn f() {}\n").expect("write lib");
+    std::fs::write(root.join(".ignore"), "local-only\n").expect("write Pijul ignore config");
     // Métadonnées VCS : ignorées par l'inventaire.
     std::fs::create_dir_all(root.join(".git")).expect("mkdir .git");
     std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").expect("write HEAD");
