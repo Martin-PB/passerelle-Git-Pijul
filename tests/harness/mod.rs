@@ -112,7 +112,7 @@ pub fn snapshot_text(dir: &Path) -> std::io::Result<BTreeMap<String, String>> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name == ".git" || name == ".pijul" {
+            if name == ".git" || name == ".pijul" || name == ".ignore" {
                 continue; // métadonnées de VCS, pas du texte transporté
             }
             let path = entry.path();
