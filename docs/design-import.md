@@ -252,3 +252,10 @@ la compatibilité exacte avec la version beta de Pijul n'a pas été vérifiée.
 Le binaire n'est ni incorporé ni redistribué ; le statut de licence upstream
 reste à clarifier. L'égalité d'arbre est vérifiée à l'exécution, mais cela ne
 remplace pas le test P0 synthétique de bout en bout.
+
+
+Le triage P0 lit aussi `pijul status` après avoir basculé explicitement sur
+`integration`. Une erreur de commande ou un format de sortie qui n'identifie
+pas le channel ne vaut jamais `Clean`. Les chemins conflictuels sont rapportés
+à l'opérateur ; leur attribution à une PR et la file persistante restent à
+implémenter. L'export refuse les conflits et changements non enregistrés.
