@@ -332,15 +332,45 @@ pub fn translate_pr_from_mirror(
     // child, then compute the one-change delta immediately while the child
     // channel is still available. Importing the entire head first and mapping
     // afterward is incorrect for histories longer than one commit.
-    import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-    ensure_channel_from(pijul_repo, &base.sha, &format!("pr-{}", pr.number))?;
-    ensure_channel_from(pijul_repo, &base.sha, "integration")?;
+    let pr_channel = format!("pr-{}", pr.number);
+    let has_previous_import = ledger.by_sha.values().any(|entry| {
+        entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul
+    });
+    if !has_previous_import {
+        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+        ensure_channel_from(pijul_repo, &base.sha, &pr_channel)?;
+        ensure_channel_from(pijul_repo, &base.sha, "integration")?;
+    } else {
+        let channels = list_channels(pijul_repo)?;
+        if !channels.contains(&pr_channel) || !channels.contains("integration") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "ledger has prior entries for PR {} but its named channels are missing; refusing unsafe reinitialization",
+                    pr.number
+                ),
+            ));
+        }
+    }
 
     let commits = git(
         git_mirror,
         &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
     )?;
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
+        // A rerun must not re-import old commits: beta.24's OID cache may
+        // refer to channels it has already dropped. The retained PR tip is
+        // the checkpoint; import only commits not yet in the ledger.
+        if let Some(existing) = ledger.get(sha) {
+            if existing.direction == Direction::GitToPijul && existing.pr == Some(pr.number) {
+                continue;
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Git SHA {sha} already has a ledger entry outside PR {}'s import", pr.number),
+            ));
+        }
+
         let parents = git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
         let parts: Vec<_> = parents.split_whitespace().collect();
         if parts.len() != 2 {
@@ -371,7 +401,7 @@ pub fn translate_pr_from_mirror(
         }
     }
 
-    pull_channel_into(pijul_repo, &pr.head_sha, &format!("pr-{}", pr.number))?;
+    pull_channel_into(pijul_repo, &pr.head_sha, &pr_channel)?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
     let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
     ledger.save(&crate::ledger::ledger_path(ledger_root))?;
