@@ -169,7 +169,8 @@ mod tests {
     #[test]
     fn unresolved_conflict_is_reported_for_operator() {
         let root = tempfile::tempdir().expect("temp root");
-        std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n").expect("write file");
+        std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n")
+            .expect("write file");
         let status = "On branch integration\n\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    conflict.txt\n";
         let result = parse_status_output(root.path(), status).unwrap();
         match &result[0] {
