@@ -279,3 +279,53 @@ pub fn export_linear_with_pijul_export(
     delete_ref(&git_mirror, &staging_ref);
     Ok(output_ref.to_owned())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::working_tree_id;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git(cwd: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git must be installed for export tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn working_tree_snapshot_excludes_pijul_metadata() {
+        let root = tempfile::tempdir().expect("temp root");
+        let mirror = root.path().join("mirror.git");
+        run_git(
+            root.path(),
+            &["init", "--bare", mirror.to_str().expect("UTF-8 path")],
+        );
+
+        let pijul = root.path().join("pijul");
+        std::fs::create_dir_all(pijul.join(".pijul")).expect("create metadata");
+        std::fs::write(pijul.join("README.md"), "synthetic text\n").expect("write source");
+        std::fs::write(pijul.join(".pijul/config"), "internal\n").expect("write metadata");
+        std::fs::write(pijul.join(".ignore"), "local-only\n").expect("write ignore config");
+
+        let expected = root.path().join("expected");
+        std::fs::create_dir_all(&expected).expect("create expected repo");
+        run_git(&expected, &["init"]);
+        std::fs::write(expected.join("README.md"), "synthetic text\n").expect("write expected");
+        run_git(&expected, &["add", "README.md"]);
+        let expected_tree = run_git(&expected, &["write-tree"]);
+
+        let actual_tree =
+            working_tree_id(&mirror, &pijul, &root.path().join("scratch")).expect("tree snapshot");
+        assert_eq!(actual_tree, expected_tree);
+    }
+}
