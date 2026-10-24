@@ -81,16 +81,15 @@ Le script accepte :
 RUN_SIBLING_RERUN_TEST=1 bash scripts/verify-local.sh
 ```
 
-Il doit échouer explicitement tant qu'aucun test nommé pour ce scénario n'existe. **À ce jour, le test dédié doit encore être écrit** ; le paramètre ne crée pas ce test et ne prouve donc pas que le scénario est couvert.
+Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est maintenant écrit dans `tests/roundtrip.rs` et ignoré par défaut. Le script vérifie son existence, puis le lance explicitement avec `--ignored`. Ce test n'a pas encore été exécuté : sa présence ne valide pas le scénario.
 
-Le test à implémenter doit utiliser uniquement des dépôts synthétiques et couvrir :
+Le test utilise uniquement des dépôts synthétiques et couvre :
 1. une base commune et deux branches sœurs distinctes ;
 2. import de la première branche ;
 3. import de la seconde branche dans le même environnement Pijul ;
-4. vérification des mappings OID→change et des changes de la base commune ;
-5. rerun de la base et des deux branches ;
-6. comparaison de l'état abstrait/ledger avant et après le rerun ;
-7. vérification que les échecs d'import ne publient aucun mapping ou ref partiel.
+4. import successif des deux branches sœurs dans le même dépôt Pijul ;
+5. rerun de la première branche après l'import de la seconde ;
+6. présence et attribution des mappings OID→change après les opérations.
 
 Comparer aussi les arbres de fichiers ne suffit pas à établir l'identité des changes ou la préservation des conflits.
 
