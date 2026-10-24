@@ -193,6 +193,12 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 fn sibling_branches_then_rerun_preserves_base_and_mapping() {
     assert!(harness::have("git"), "pré-requis manquant : git");
     assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
+    let (version_ok, version) = harness::run(Path::new("."), "pijul", &["--version"]);
+    assert!(version_ok, "impossible de lire la version de Pijul : {version}");
+    assert!(
+        version.contains("1.0.0-beta.24"),
+        "ce test cible Pijul 1.0.0-beta.24, version observée : {version}"
+    );
 
     let scenario = corpus()
         .into_iter()
