@@ -60,6 +60,10 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
     }
 
     let status = String::from_utf8_lossy(&output.stdout);
+    parse_status_output(workdir, &status)
+}
+
+fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
     let identifies_integration = status.lines().any(|line| {
         let line = line.trim();
         (line.starts_with("On branch ") || line.starts_with("On channel "))
@@ -132,4 +136,41 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
         });
     }
     Ok(reports)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_status_output, Triage};
+    use std::path::Path;
+
+    #[test]
+    fn clean_status_requires_an_explicit_integration_channel() {
+        let clean = "On branch integration\n";
+        assert!(matches!(
+            parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+            [Triage::Clean]
+        ));
+        assert_eq!(
+            parse_status_output(Path::new("."), "no channel reported\n")
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn unresolved_conflict_is_reported_for_operator() {
+        let root = tempfile::tempdir().expect("temp root");
+        std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n").expect("write file");
+        let status = "On branch integration\n\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    conflict.txt\n";
+        let result = parse_status_output(root.path(), status).unwrap();
+        match &result[0] {
+            Triage::Operator { report } => {
+                assert_eq!(report.path, "conflict.txt");
+                assert!(report.conflict_state.contains("<<<<<<< conflict"));
+            }
+            other => panic!("expected operator triage, got {other:?}"),
+        }
+    }
 }
