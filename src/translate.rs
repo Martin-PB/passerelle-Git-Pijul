@@ -56,7 +56,7 @@ fn pijul(repo: &Path, args: &[&str]) -> std::io::Result<String> {
 pub fn changes_on_channel(pijul_repo: &Path, channel: &str) -> std::io::Result<BTreeSet<String>> {
     let output = pijul(
         pijul_repo,
-        &["log", "--hash-only", "--channel", channel, "--repository", &pijul_repo.display().to_string()],
+        &["log", "--hash-only", "--channel", channel],
     )?;
     Ok(output
         .lines()
