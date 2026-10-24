@@ -1,14 +1,14 @@
-/-
+/*
 Copyright (c) 2026 Martin-PB. All rights reserved.
 See the repository root for the applicable license.
 
-Git ↔ Pijul bridge — first formal specification layer.
+Git ↔ Pijul bridge — formal specification layers.
 
 This file specifies contracts before choosing an import algorithm. It does NOT
 claim to model the full Pijul patch calculus yet. The abstract Pijul interface
 below is an explicit proof boundary, not a theorem about the upstream CLI. Do
 not add axioms that simply assert the desired end-to-end correctness property.
--/
+*/
 
 import Std
 
@@ -23,6 +23,10 @@ abbrev BlobId := Nat
 /-- A tree is modeled extensionally as a path-to-blob partial map.
     This abstracts Git tree-object encoding and object hashes. -/
 abbrev GitTree := Path → Option BlobId
+
+/-- Extensional equality of materialized file trees. This intentionally says
+    nothing about commit ancestry, change identity, or conflict semantics. -/
+def TreeEq (a b : GitTree) : Prop := ∀ path, a path = b path
 
 structure GitCommit where
   oid     : Oid
@@ -71,6 +75,20 @@ theorem ancestry_transitive (h : GitHistory) {a b c : Oid}
   | @step _ _ parent child hbp edge ih =>
       exact Ancestor.step ih edge
 
+/-- Each direct parent edge strictly increases rank in the forward direction. -/
+theorem parent_edge_rank_lt (h : GitHistory) {p c : Oid}
+    (edge : ParentEdge h p c) : h.rank p < h.rank c := by
+  rcases edge with ⟨commit, hcommit, hparent⟩
+  exact h.parentRank c commit hcommit p hparent
+
+/-- An ancestor can never have a greater rank than its descendant. -/
+theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
+    (ha : Ancestor h a d) : h.rank a ≤ h.rank d := by
+  induction ha with
+  | refl x => exact Nat.le_refl _
+  | @step ancestor parent child hprev edge ih =>
+      exact Nat.le_trans ih (Nat.le_of_lt (parent_edge_rank_lt h edge))
+
 /-- A commit is in the base-to-head range iff base is its ancestor and it
     is itself an ancestor of head. -/
 def InRange (h : GitHistory) (base head commit : Oid) : Prop :=
@@ -104,7 +122,35 @@ structure PatchModel where
   Apply : State → PatchType → Option State
   Conflict : State → PatchType → PatchType → Prop
 
-/-! ## 3. Ledger contract -/
+/-! ## 3. P0 equivalence criteria: content and conflicts
+
+P0 is restricted to synthetic repositories. Its acceptance criterion is
+content equivalence plus conflict-observation equivalence. Git commit topology
+is a separate objective and must not be smuggled into P0's definition.
+These predicates define the target contract; they do not assert that the
+current importer/exporter satisfies it. -/
+
+structure P0Observation where
+  imported : Oid → Prop
+  gitTree : Oid → GitTree
+  pijulTree : Oid → GitTree
+  gitConflict : Oid → Oid → Prop
+  pijulConflict : Oid → Oid → Prop
+
+/-- P0 preserves every imported commit's materialized content and preserves
+    the conflict relation observed for imported commit pairs. -/
+def P0Equivalent (o : P0Observation) : Prop :=
+  (∀ c, o.imported c → TreeEq (o.gitTree c) (o.pijulTree c)) ∧
+  (∀ a b, o.imported a → o.imported b →
+    (o.gitConflict a b ↔ o.pijulConflict a b))
+
+/-- Exact parent-edge preservation is a distinct topology objective, not part
+    of P0Equivalent. Its concrete target representation remains to be chosen. -/
+def GitTopologyEquivalent (h : GitHistory)
+    (translatedParent : Oid → Oid → Prop) : Prop :=
+  ∀ p c, GitHistory.ParentEdge h p c ↔ translatedParent p c
+
+/-! ## 4. Ledger contract -/
 
 structure Ledger where
   entries : List (Oid × ChangeId)
@@ -137,7 +183,7 @@ def IsSingletonDelta (obs : MappingObservation) : Prop :=
   obs.change ∉ obs.before ∧
   ∀ c, c ∈ obs.after → c ∉ obs.before → c = obs.change
 
-/-! ## 4. Import protocol and fail-closed publication -/
+/-! ## 5. Import protocol and fail-closed publication -/
 
 inductive OperationStatus
   | pending
@@ -168,7 +214,7 @@ theorem imported_record_has_mapping (r : ImportRecord)
   | some change =>
       exact ⟨change, hm⟩
 
-/-! ## 5. Required correctness obligations (not yet proved)
+/-! ## 6. Required correctness obligations (not yet proved)
 
 The following targets must become formal predicates and theorems after the
 concrete semantics and refinement relation are defined.
@@ -185,7 +231,7 @@ concrete semantics and refinement relation are defined.
 * Safe publication: output refs are published only after all required
   invariants hold; external command failure cannot be treated as success.
 
-No end-to-end correctness theorem is claimed in this initial file.
+No end-to-end correctness theorem is claimed in this file.
 -/
 
 end PijulBridge
