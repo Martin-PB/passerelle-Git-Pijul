@@ -326,30 +326,17 @@ pub fn translate_pr_from_mirror(
 /// The high-level orchestration still needs the mirror path and must create
 /// the named channel from the imported base before exposing it to operators.
 pub fn translate_pr(
-    workdir: &Path,
-    base: &Base,
+    _workdir: &Path,
+    _base: &Base,
     pr: &PullRequest,
-    ledger: &mut Ledger,
+    _ledger: &mut Ledger,
 ) -> std::io::Result<()> {
-    let _ = (workdir, base);
-    if pr.head_sha.trim().is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("PR {} has no pinned head SHA", pr.number),
-        ));
-    }
-    if let Some(existing) = ledger.get(&pr.head_sha) {
-        if existing.pijul_change.starts_with("TODO-import-") {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("ledger contains a placeholder mapping for {}", pr.head_sha),
-            ));
-        }
-        return Ok(());
-    }
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "translate_pr orchestration is not wired yet; call import_git_commit and change_for_git_commit with the fetched mirror",
+        format!(
+            "translate_pr requires the pinned Git mirror; use translate_pr_from_mirror for PR {}",
+            pr.number
+        ),
     ))
 }
 
