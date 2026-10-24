@@ -195,12 +195,17 @@ Rust suivantes dans `src/translate.rs` :
   fabriquer une correspondance approximative. Des tests purs couvrent les
   trois cardinalités (1, 0, plusieurs).
 
-**Limites :** ces primitives ne sont pas encore câblées dans
-`translate_pr` / `merge-prs`; la création et l'application des channels
-`pr-<n>` et `integration` reste à faire. L'export Pijul → Git reste
-incomplet. Les tests Rust restent **NOT RUN** (Cargo indisponible dans
-l'environnement de travail) ; les commandes Pijul doivent être validées par
-exécution sur le binaire cible avant d'activer le round-trip P0.
+**Avancement suivant :** le chemin est maintenant câblé dans `merge-prs`.
+La commande résout `refs/remotes/base/<nom>` et `refs/remotes/pr/<n>` dans le
+miroir, vérifie l’ascendance base→tête, importe les commits, refuse les commits
+de merge non pris en charge en P0, crée `pr-<n>` depuis la base et applique
+les changes vers `integration`. Une tête forcée non fast-forward est refusée
+pour éviter d’écraser le channel existant. Le ledger est écrit à côté du dépôt
+Pijul.
+
+**Limites :** tests Rust **NOT RUN** (Cargo indisponible) et commandes Pijul
+non validées par exécution. Le triage/opérateur et l’export Pijul → Git restent
+incomplets ; le round-trip P0 n’est pas démontré.
 
 
 ## 9. Audit initial de `pijul-export` (24/10/2026)
