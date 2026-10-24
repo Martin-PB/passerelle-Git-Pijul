@@ -94,6 +94,43 @@ exactement par commit — aucune heuristique d'ordre à inventer.
   `git commit-tree` en mode linear et un merge commit par PR en
   merge-topology.
 
+
+## 6. Briques existantes (recherche du 24/10/2026 — ne pas réimplémenter avant d'avoir vérifié)
+
+Réponse à la vigilance légitime « ne recréons-nous pas pijul git ? » : non —
+l'import est appelé comme boîte noire (D1). La même vigilance s'applique au
+sens retour (2.3), voici l'état de l'art trouvé :
+
+| Outil | Sens | État | Verdict pour la passerelle |
+|---|---|---|---|
+| `pijul git` (upstream) | Git → Pijul | Intégré au CLI beta | Boîte noire de l'import (D1) |
+| `pijul-export` (andybalholm, Nest) | **Pijul → Git** | Rust ; flux `git fast-export`, historique linéaire d'un channel, **fichiers de marks** pour la correspondance incrémentale | **Candidat de réutilisation pour 2.3 mode linear** — à auditer : licence (COPYING présent, contenu non vérifié), maintenance face à beta.24, préservation auteurs/dates |
+| `git-pijul` (ganwell, PyPI) | Git → Pijul (+ `set-diff`/`set-union`/`set-intersection` sur channels) | Python ; import par ancestry-path | Import remplacé par `pijul git` ; **les opérations ensemblistes sur les changes valent le détour pour le triage 2.5** |
+| `PijulGit` (purplesyringa) | Bidirectionnel (miroir webhooks) | Python, 2019, pijul 0.12, GitLab+Nest seulement | Référence historique ; API pijul pré-beta, pas de GitHub, pas de sémantique PR |
+| Nest (hébergement officiel) | — | Code vérifié : **aucune interface Git native** ; le manuel ne documente que l'échange de patches | Hypothèse « le Nest sert déjà git » : réfutée ; aucun pont à attendre de ce côté |
+| Discussion upstream #803 | export/import pijul | En discussion sur le Nest | À suivre (veille 3.5) : si `pijul export` atterrit en upstream, réévaluer 2.3 |
+
+### Le sens Pijul → GitHub n'existe nulle part
+
+GitHub = git + refs de PR (`refs/pull/<n>/head`) + sémantique merge/queue.
+Le mécanique (`git fast-import`/plumbing) est couvrable par les briques
+ci-dessus ; la **sémantique PR de GitHub reste à nous** : détection de
+force-push sur événement `synchronize` (le ledger la fait déjà), topologie
+merge-commit par PR (mode `merge-topology`, absent de `pijul-export` qui
+est purement linéaire), et la frontière opérateur. Conclusion : la passerelle
+est la couche orchestration + le chaînon manquant, pas une réécriture.
+
+### Décisions mises à jour
+
+- **D6** : avant d'implémenter 2.3 mode linear, auditer `pijul-export`
+  (licence, beta.24, auteurs/dates) ; réutiliser ou dériver, ne pas
+  réécrire. Le mode `merge-topology` reste de fabrication maison.
+- **D7** : les fichiers de marks de `pijul-export` et notre ledger servent
+  le même but (correspondance incrémentale) — si réutilisation, le ledger
+  s'aligne sur le format marks plutôt que l'inverse.
+- **D8** : étudier les opérations ensemblistes de `git-pijul` pour le
+  triage (2.5), où la sémantique union/intersection des changes est centrale.
+
 ## 5. Prochaines étapes
 
 1. Faire tourner le harnas 2.1 (crédits CI) pour valider le corpus.
