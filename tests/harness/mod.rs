@@ -2,8 +2,8 @@
 //!
 //!   export(import(x)) == x   (sans perte sur le texte)
 //!
-//! Ce module fournit trois briques, indépendantes des stubs translate/export
-//! (backlogs 2.2/2.3) :
+//! Ce module fournit le corpus synthétique et les assertions texte utilisés
+//! par les tests du pipeline import/triage/export :
 //!
 //!   1. le CORPUS de scénarios synthétiques : chaque scénario construit un
 //!      dépôt Git dont les branches entrantes entrent réellement en conflit
@@ -11,9 +11,9 @@
 //!   2. l'INVENTAIRE texte d'un répertoire (`snapshot_text`) et le
 //!      comparateur sans-perte (`assert_text_lossless`), coeur de la
 //!      propriété d'acceptation n°1 ;
-//!   3. un TEST de bout en bout (`tests/roundtrip.rs`), aujourd'hui
-//!      `#[ignore]` car les fonctions de traduction sont des stubs TODO :
-//!      il se débloque avec 2.2 (import réel) et 2.3 (export réel).
+//!   3. un test d'import/triage exécutable si Pijul est installé et un test
+//!      round-trip `#[ignore]` jusqu'à ce qu'un jeu de changements de résolution
+//!      déterministes et un exporteur compatible soient validés.
 //!
 //! Le corpus est synthétique conformément à l'arbitrage opérateur 5.1 du
 //! 24/10/2026 : dépôts synthétiques uniquement pour le jalon P0. Les dépôts
