@@ -242,6 +242,27 @@ theorem Ledger.recorded_change_unique (ledger : Ledger)
     (h₂ : (oid, c₂) ∈ ledger.entries) : c₁ = c₂ :=
   h oid c₁ c₂ h₁ h₂
 
+/-- Append a mapping only when the exact pair is not already present. This
+    small operation models duplicate suppression, not conflict resolution for
+    a different change already associated with the same OID. -/
+def Ledger.recordIfAbsent (ledger : Ledger) (oid : Oid) (change : ChangeId) : Ledger :=
+  { entries :=
+      if (oid, change) ∈ ledger.entries then
+        ledger.entries
+      else
+        ledger.entries ++ [(oid, change)] }
+
+/-- Recording the same mapping twice is idempotent at the ledger-data level.
+    This theorem does not establish that an external import itself is
+    idempotent, nor that a conflicting mapping for the same OID is accepted. -/
+theorem Ledger.recordIfAbsent_idempotent (ledger : Ledger)
+    (oid : Oid) (change : ChangeId) :
+    ledger.recordIfAbsent oid change |>.recordIfAbsent oid change =
+      ledger.recordIfAbsent oid change := by
+  by_cases h : (oid, change) ∈ ledger.entries
+  · simp [Ledger.recordIfAbsent, h]
+  · simp [Ledger.recordIfAbsent, h]
+
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
   gitOid : Oid
