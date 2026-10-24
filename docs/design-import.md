@@ -314,3 +314,41 @@ commandes de channels/pull, puis le round-trip complet. Aucun round-trip ne
 doit être revendiqué avant l'exécution du test d'intégration avec beta.24.
 
 Source versionnée : https://docs.rs/crate/pijul/1.0.0-beta.24/source/src/commands/git.rs
+
+### Hypothèse à tester : reconstruire les changes depuis le DAG Git local
+
+La remarque suivante change l'orientation du spike : le miroir Git complet contient
+bien les données sources nécessaires pour rejouer l'historique commit par commit
+(parent(s), tree, blobs, identités, horodatages et messages). Il n'est donc pas
+nécessaire de dépendre de la persistance des channels OID pour **connaître le
+graphe Git** ou reconstruire les deltas de fichiers. En revanche, un `git diff`
+ne constitue pas à lui seul un `change` Pijul : le hash et les dépendances Pijul
+doivent être produits par Pijul, pas inventés depuis le SHA Git.
+
+Hypothèse prioritaire, à prouver sur beta.24 avant de coder davantage :
+
+1. Créer un dépôt Pijul temporaire isolé par ref/branche entrante.
+2. Rejouer dans ce dépôt l'histoire Git nécessaire, avec `pijul git`, en
+   capturant pour chaque commit l'ensemble de changes avant et après l'import
+   de son enfant ; cela évite que les imports d'une autre branche aient déjà
+   supprimé les channels OID nécessaires.
+3. Vérifier expérimentalement que l'import du même commit et de ses ancêtres
+   dans deux dépôts Pijul propres produit les mêmes hashes de changes pour
+   chaque commit commun. C'est une hypothèse de déterminisme, pas une garantie
+   acquise.
+4. Transférer les changes de la branche isolée vers le dépôt partagé par les
+   commandes natives Pijul, puis vérifier que les changes communs ne sont pas
+   dupliqués, que les branches sœurs restent intégrables et qu'un rerun est
+   idempotent.
+5. Tester un corpus synthétique comprenant une base, deux commits sœurs, une
+   branche plus longue et un rerun complet. Comparer à la fois les hashes de
+   changes, les channels et les arbres matérialisés.
+
+Si les hashes communs ne sont pas stables entre imports isolés, ne pas tenter
+de les apparier à partir du seul contenu Git : il faudra un adaptateur fondé sur
+l'API/crates Pijul, ou une évolution upstream conservant les états nécessaires.
+La génération de diffs Git reste utile pour auditer les changements attendus et
+comparer les arbres, mais ne remplace pas le format natif Pijul.
+
+**État : piste prioritaire, non exécutée.** Aucun résultat de test ne confirme
+encore le déterminisme des hashes entre dépôts isolés ni le transfert des changes.
