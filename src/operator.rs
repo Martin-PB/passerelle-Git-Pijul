@@ -61,3 +61,84 @@ impl OperatorQueue {
         }
     }
 }
+
+
+#[derive(Debug, Serialize)]
+struct AuditEvent<'a> {
+    event: &'static str,
+    change_hash: &'a str,
+    note: Option<&'a str>,
+    recorded_at: String,
+}
+
+/// Apply an already available Pijul change to the integration channel and
+/// append an audit trail. This does not generate the resolution change; the
+/// operator or an assisting tool records it first in the same Pijul repo.
+pub fn apply_resolution(
+    workdir: &std::path::Path,
+    change_hash: &str,
+    note: Option<&str>,
+) -> std::io::Result<()> {
+    if change_hash.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "resolution change hash must not be empty",
+        ));
+    }
+    std::fs::create_dir_all(workdir)?;
+    let pijul_repo = workdir.join("pijul");
+    let switch = std::process::Command::new("pijul")
+        .args(["channel", "switch", "integration"])
+        .current_dir(&pijul_repo)
+        .output()?;
+    if !switch.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "cannot switch to integration before applying resolution: {}",
+                String::from_utf8_lossy(&switch.stderr).trim()
+            ),
+        ));
+    }
+
+    append_audit(workdir, "resolution-attempted", change_hash, note)?;
+    let apply = std::process::Command::new("pijul")
+        .args(["apply", change_hash])
+        .current_dir(&pijul_repo)
+        .output()?;
+    if !apply.status.success() {
+        let detail = String::from_utf8_lossy(&apply.stderr).trim().to_owned();
+        let _ = append_audit(workdir, "resolution-failed", change_hash, note);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("pijul apply {change_hash} failed: {detail}"),
+        ));
+    }
+    append_audit(workdir, "resolution-applied", change_hash, note)?;
+    Ok(())
+}
+
+fn append_audit(
+    workdir: &std::path::Path,
+    event: &'static str,
+    change_hash: &str,
+    note: Option<&str>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let entry = AuditEvent {
+        event,
+        change_hash,
+        note,
+        recorded_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| format!("unix:{}", duration.as_secs()))
+            .unwrap_or_else(|_| "unix:0".into()),
+    };
+    let serialized = serde_json::to_string(&entry)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(workdir.join("gateway-audit.jsonl"))?;
+    writeln!(file, "{serialized}")
+}
