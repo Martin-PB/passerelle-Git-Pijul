@@ -260,6 +260,7 @@ fn roundtrip_property_end_to_end() {
         assert_eq!(exported, "refs/heads/gateway/integration");
 
         let exported_worktree = tempfile::tempdir().expect("export worktree");
+        let checkout = exported_worktree.path().join("checkout");
         let (ok, output) = harness::run(
             Path::new("."),
             "git",
@@ -269,14 +270,13 @@ fn roundtrip_property_end_to_end() {
                 "worktree",
                 "add",
                 "--detach",
-                exported_worktree.path().to_str().expect("UTF-8 worktree path"),
+                checkout.to_str().expect("UTF-8 worktree path"),
                 &exported,
             ],
         );
         assert!(ok, "cannot materialize exported branch: {output}");
         let imported_text = snapshot_text(&pijul_repo).expect("snapshot Pijul integration");
-        let exported_text =
-            snapshot_text(exported_worktree.path()).expect("snapshot exported Git branch");
+        let exported_text = snapshot_text(&checkout).expect("snapshot exported Git branch");
         assert_text_lossless(&imported_text, &exported_text, scenario.name);
     }
 }
