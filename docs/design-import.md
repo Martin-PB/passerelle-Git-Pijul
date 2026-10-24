@@ -259,3 +259,14 @@ Le triage P0 lit aussi `pijul status` après avoir basculé explicitement sur
 pas le channel ne vaut jamais `Clean`. Les chemins conflictuels sont rapportés
 à l'opérateur ; leur attribution à une PR et la file persistante restent à
 implémenter. L'export refuse les conflits et changements non enregistrés.
+
+
+### Caveat de version sur la signature de `pijul git`
+
+La documentation amont de la branche `main` consultée le 24/10/2026 affiche
+`pijul git [repo-path]`, tandis que la source beta.24 décrite plus haut dans
+ce spike expose `pijul git [git_path] [pijul_path]`. La passerelle conserve
+provisoirement la signature à deux chemins du contrat beta ciblé ; elle ne
+doit pas être considérée validée tant que le binaire exact beta.24 n'a pas
+confirmé cette interface. Ne pas substituer la syntaxe de `main` sans
+arbitrer explicitement la version de Pijul cible.
