@@ -144,3 +144,37 @@ fn append_audit(
         .open(workdir.join("gateway-audit.jsonl"))?;
     writeln!(file, "{serialized}")
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{append_audit, apply_resolution};
+    use std::path::Path;
+
+    #[test]
+    fn audit_events_append_as_independent_json_lines() {
+        let root = tempfile::tempdir().expect("temp root");
+        append_audit(root.path(), "resolution-attempted", "ABC123", Some("keep both"))
+            .expect("append first event");
+        append_audit(root.path(), "resolution-applied", "ABC123", Some("keep both"))
+            .expect("append second event");
+
+        let raw = std::fs::read_to_string(root.path().join("gateway-audit.jsonl"))
+            .expect("read audit");
+        let lines: Vec<_> = raw.lines().collect();
+        assert_eq!(lines.len(), 2);
+        let first: serde_json::Value = serde_json::from_str(lines[0]).expect("first JSON line");
+        let second: serde_json::Value =
+            serde_json::from_str(lines[1]).expect("second JSON line");
+        assert_eq!(first["event"], "resolution-attempted");
+        assert_eq!(second["event"], "resolution-applied");
+        assert_eq!(second["note"], "keep both");
+    }
+
+    #[test]
+    fn invalid_resolution_hash_is_rejected_before_running_pijul() {
+        let error = apply_resolution(Path::new("/nonexistent-workdir"), "../outside", None)
+            .expect_err("path-like input must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
