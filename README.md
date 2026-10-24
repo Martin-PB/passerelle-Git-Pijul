@@ -88,10 +88,22 @@ que les scénarios annoncés conflictuels le sont réellement sous Git et que
 l'inventaire de texte est sans perte ; le test de bout en bout reste bloqué
 sur l'implémentation des backlogs 2.2 et 2.3.
 
-## Usage (forme cible)
+## Usage
+
+L'ingest générique est la seule tranche du pipeline actuellement câblée dans
+la CLI. Elle prend un remote et des mappings source=destination, sans dépendre
+d'un hébergeur particulier :
 
 ```sh
-# Cœur : des refs git, point final.
+passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
+  --ref refs/heads/main=refs/remotes/base/main \\
+  --ref refs/heads/feature-a=refs/remotes/incoming/feature-a
+```
+
+Les commandes suivantes décrivent l'interface cible ; le pipeline merge et
+l'opérateur persistant ne sont pas encore implémentés :
+
+```sh
 passerelle merge --head origin/branche-a origin/branche-b --base main --export-mode merge-topology
 passerelle operator queue
 passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
