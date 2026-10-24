@@ -128,7 +128,8 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
     for scenario in corpus() {
         let repo = tempfile::tempdir().expect("synthetic Git repo");
         harness::build_git_repo(repo.path(), &scenario);
-        let (_, base_sha) = harness::git(repo.path(), &["rev-parse", "main"]);
+        let (ok, base_sha) = harness::git(repo.path(), &["rev-parse", "main"]);
+        assert!(ok, "cannot resolve base main: {base_sha}");
         let prs: Vec<_> = scenario
             .branches
             .iter()
@@ -180,66 +181,102 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Propriété de bout en bout — débloquée par les backlogs 2.2 et 2.3
+// 3. Propriété de bout en bout
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "squelette historique ; pipeline miroir et matérialisation à finaliser"]
+#[ignore = "attend un mécanisme déterministe de résolution des conflits du corpus"]
 fn roundtrip_property_end_to_end() {
-    if !skip_unless(harness::have("git"), "git") || !skip_unless(harness::have("pijul"), "pijul") {
+    if !skip_unless(harness::have("git"), "git")
+        || !skip_unless(harness::have("pijul"), "pijul")
+        || !skip_unless(harness::have("pijul-export"), "pijul-export")
+    {
         return;
     }
+
     for scenario in corpus() {
-        // x = le dépôt Git du scénario (branche de base + branches de PRs).
-        let repo = tempfile::tempdir().expect("tempdir");
+        let repo = tempfile::tempdir().expect("synthetic Git repo");
         harness::build_git_repo(repo.path(), &scenario);
-
-        // L'inventaire texte de l'état fusionné attendu : la branche main
-        // enrichie de chaque branche de PR (pour les changes qui commutent).
-        let work = tempfile::tempdir().expect("tempdir");
-
-        let base = passerelle_git_pijul::Base {
-            branch: "main".into(),
-            sha: String::new(), // résolu par l'ingest, pas par le harnas
-        };
+        let (ok, base_sha) = harness::git(repo.path(), &["rev-parse", "main"]);
+        assert!(ok, "cannot resolve base main: {base_sha}");
         let prs: Vec<_> = scenario
             .branches
             .iter()
             .enumerate()
-            .map(|(i, (branch, _))| passerelle_git_pijul::PullRequest {
-                number: i as u64 + 1,
-                title: format!("PR {}", i + 1),
-                author: "corpus".into(),
-                head_sha: String::new(), // résolu par l'ingest
-                head_ref: branch.to_string(),
+            .map(|(index, (branch, _))| {
+                let (ok, head_sha) = harness::git(repo.path(), &["rev-parse", branch]);
+                assert!(ok, "cannot resolve branch {branch}: {head_sha}");
+                passerelle_git_pijul::PullRequest {
+                    number: index as u64 + 1,
+                    title: format!("PR {}", index + 1),
+                    author: "synthetic-corpus".into(),
+                    head_sha,
+                    head_ref: format!("refs/remotes/pr/{}", index + 1),
+                }
             })
             .collect();
 
+        let work = tempfile::tempdir().expect("gateway workspace");
+        let mirror = work.path().join("mirror.git");
+        build_mirror(repo.path(), &mirror, &base_sha, &prs);
+        let base = passerelle_git_pijul::Base {
+            branch: "main".into(),
+            sha: base_sha,
+        };
+        let pijul_repo = work.path().join("pijul");
+        let scratch = work.path().join("scratch");
         let mut ledger = passerelle_git_pijul::ledger::Ledger::default();
         for pr in &prs {
-            passerelle_git_pijul::translate::translate_pr(work.path(), &base, pr, &mut ledger)
-                .expect("la traduction aller doit réussir");
+            passerelle_git_pijul::translate::translate_pr_from_mirror(
+                &mirror,
+                &pijul_repo,
+                &scratch,
+                &base,
+                pr,
+                &mut ledger,
+            )
+            .unwrap_or_else(|error| panic!("import {} failed in {}: {error}", pr.number, scenario.name));
         }
-        // (l'étape fusion/tri/opérateur du pipeline est couverte par 2.5/2.6 ;
-        // la propriété n°1 ne porte que sur la perte de texte.)
+
+        let triage = passerelle_git_pijul::triage::triage_integration_channel(&pijul_repo)
+            .unwrap_or_else(|error| panic!("triage failed in {}: {error}", scenario.name));
+        assert!(
+            triage
+                .iter()
+                .all(|item| matches!(item, passerelle_git_pijul::triage::Triage::Clean)),
+            "scenario {} needs explicit resolution changes before round-trip export",
+            scenario.name
+        );
+
         let exported = passerelle_git_pijul::translate::export_integration(
             work.path(),
-            repo.path(),
+            &mirror,
             &mut ledger,
             passerelle_git_pijul::ExportMode::Linear,
             &base,
             &prs,
         )
-        .expect("l'export doit réussir");
-        assert_ne!(exported, "TODO-exported-branch", "l'export est encore un stub");
+        .expect("validated linear export must succeed");
+        assert_eq!(exported, "refs/heads/gateway/integration");
 
-        // TODO(2.3) : `exported` est le nom de la branche Git produite ; le
-        // harnas devra la matérialiser (clone ou worktree) pour comparer son
-        // inventaire texte à celui de l'état importé. Esquisse de la
-        // comparaison, ajustée quand l'export réel existera :
-        let imported_text = snapshot_text(work.path()).expect("snapshot côté import");
-        let exported_text = snapshot_text(work.path())
-            .expect("snapshot côté export (matérialisation : TODO 2.3)");
+        let exported_worktree = tempfile::tempdir().expect("export worktree");
+        let (ok, output) = harness::run(
+            Path::new("."),
+            "git",
+            &[
+                "--git-dir",
+                mirror.to_str().expect("UTF-8 mirror path"),
+                "worktree",
+                "add",
+                "--detach",
+                exported_worktree.path().to_str().expect("UTF-8 worktree path"),
+                &exported,
+            ],
+        );
+        assert!(ok, "cannot materialize exported branch: {output}");
+        let imported_text = snapshot_text(&pijul_repo).expect("snapshot Pijul integration");
+        let exported_text =
+            snapshot_text(exported_worktree.path()).expect("snapshot exported Git branch");
         assert_text_lossless(&imported_text, &exported_text, scenario.name);
     }
 }
