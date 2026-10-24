@@ -134,6 +134,7 @@ pub fn import_git_commit(
         ));
     }
 
+    let git_mirror = git_mirror.canonicalize()?;
     std::fs::create_dir_all(scratch)?;
     if let Some(parent) = pijul_repo.parent() {
         std::fs::create_dir_all(parent)?;
@@ -152,6 +153,21 @@ pub fn import_git_commit(
                 "--no-hardlinks".into(),
                 git_mirror.display().to_string(),
                 worktree.display().to_string(),
+            ],
+            None,
+        )?;
+        // `git clone` normally copies refs/heads and tags only. PR/base refs
+        // live under refs/remotes/* in our bare mirror, so fetch them explicitly
+        // before checking out the pinned SHA.
+        command_output(
+            "git",
+            &[
+                "-C".into(),
+                worktree.display().to_string(),
+                "fetch".into(),
+                "--no-tags".into(),
+                git_mirror.display().to_string(),
+                "+refs/remotes/*:refs/remotes/*".into(),
             ],
             None,
         )?;
