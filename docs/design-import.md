@@ -500,3 +500,23 @@ La sémantique des changes Pijul n'est volontairement pas déclarée prouvée : 
 Ces définitions rendent le critère d'acceptation explicite, mais **ne prouvent pas** que le programme Rust ou `pijul git` le satisfait. Les relations d'observation de conflits restent abstraites jusqu'à ce qu'elles soient reliées à une sémantique Pijul concrète et à des observations définies de l'interface. Aucun axiome ne doit être ajouté pour postuler cette équivalence.
 
 **Validation :** cette mise à jour n'a pas été compilée par Lean : aucun exécutable Lean/Lake n'est disponible dans l'environnement de travail. Les preuves écrites restent donc non vérifiées jusqu'à une compilation réelle. Aucun workflow GitHub Actions n'a été lancé.
+
+### Configuration Lean/Lake reproductible (24/10/2026)
+
+Ajout des fichiers racine `lean-toolchain` et `lakefile.lean` :
+
+- version Lean épinglée : `leanprover/lean4:v4.19.0` ;
+- bibliothèque Lake `Bridge`, dont la racine source est `formal/lean` ;
+- module principal : `Bridge.Spec` (`formal/lean/Bridge/Spec.lean`).
+
+Depuis la racine du dépôt, après installation de Lean via elan :
+
+```sh
+lake --version
+lean --version
+lake build Bridge
+```
+
+Le pin est volontairement explicite pour rendre les résultats reproductibles ; il pourra être actualisé dans une modification dédiée après validation de la compilation. La présence de cette configuration ne signifie pas que le build est déjà passé : il n'a pas été exécuté dans cet environnement.
+
+**Limite de méthode à conserver :** `P0Equivalent` est actuellement un contrat d'observation, pas encore une relation de raffinement démontrée. En particulier, `gitConflict` et `pijulConflict` sont des prédicats fournis par l'observateur : tant qu'on ne définit pas comment ils sont dérivés des états et de l'interface réelle, l'équivalence ne prouve rien sur le comportement concret du pont. La prochaine étape doit spécifier ces observations et les hypothèses de confiance, puis seulement formuler un théorème reliant l'exécution au contrat.
