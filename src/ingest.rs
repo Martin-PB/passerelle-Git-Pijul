@@ -54,7 +54,10 @@ fn ensure_bare_mirror(dest: &Path) -> std::io::Result<()> {
     if std::fs::read_dir(dest)?.next().is_some() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("{} exists but is not an empty directory or bare Git repository", dest.display()),
+            format!(
+                "{} exists but is not an empty directory or bare Git repository",
+                dest.display()
+            ),
         ));
     }
     git(dest, ["init", "--bare"])?;
