@@ -352,3 +352,62 @@ comparer les arbres, mais ne remplace pas le format natif Pijul.
 
 **État : piste prioritaire, non exécutée.** Aucun résultat de test ne confirme
 encore le déterminisme des hashes entre dépôts isolés ni le transfert des changes.
+
+### Approche alternative à tester en premier : un seul DAG Git synthétique
+
+L'analyse du défaut de beta.24 suggère une approche plus simple que N imports
+isolés : **ne plus appeler `pijul git` séparément pour chaque branche sœur**.
+Construire dans le miroir temporaire un commit Git synthétique dont les parents
+sont les têtes épinglées des branches à importer, puis appeler `pijul git`
+une seule fois sur ce DAG complet.
+
+Pourquoi cela pourrait marcher : l'importateur upstream parcourt le DAG depuis
+HEAD et compte les descendants encore à traiter avant de supprimer les channels
+OID parents. Dans un DAG unique, la base commune a plusieurs chemins descendants
+et ne devrait être libérée qu'après le traitement de toutes les branches qui en
+dépendent. Cela évite le scénario fautif « importer branche A, supprimer le
+channel de base, puis importer branche B depuis le cache ». Cette explication
+est une déduction à partir du code beta.24, pas encore une preuve expérimentale.
+
+Protocole de validation :
+1. Construire un dépôt Git synthétique avec une base B et deux branches sœurs
+   A et C, chacune ajoutant au moins un commit indépendant.
+2. Créer un commit temporaire M dont les parents sont A et C, en fixant
+   explicitement son arbre à celui de A. Le commit est un artifice de parcours,
+   il ne doit pas être exporté vers le dépôt cible.
+3. Lancer une seule fois `pijul git` sur M ; vérifier que les changes propres
+   à A et C sont tous présents, et que le channel OID de B n'est pas supprimé
+   avant que ses deux branches aient été traitées.
+4. Vérifier le comportement du commit synthétique sans différence d'arbre :
+   si l'importateur le refuse ou crée un change artificiel, tester une racine
+   synthétique équivalente ou un importeur modifié, et surtout ne jamais exposer
+   M dans les refs exportées.
+5. Comparer les arbres matérialisés des channels A et C, vérifier le mapping
+   Git-SHA→change en capturant les deltas pendant le parcours si possible, puis
+   relancer l'import sur le même DAG et vérifier l'idempotence.
+6. Étendre à trois branches, une branche dépendante (C basée sur A), un merge
+   Git réel et un rerun partiel.
+
+Limites : le CLI ne fournit pas de hook documenté pour capturer chaque change
+pendant le parcours interne. Il peut donc résoudre le partage de base sans
+résoudre à lui seul le mapping exact par commit. Si ce mapping est indispensable
+pour l'export, l'étape suivante est un petit fork/patch de `pijul git` qui
+émet un manifeste JSON `Git OID → change hash → parent OIDs` pendant l'import,
+ou une API interne basée sur les crates Pijul. C'est plus ciblé qu'une
+réimplémentation du format des changes.
+
+### Recherche théorique utile
+
+La documentation théorique officielle de Pijul décrit les changes comme des
+modifications d'un graphe de lignes et de relations, avec identité liée au
+change qui introduit chaque ligne ; elle explique pourquoi un diff de texte ne
+suffit pas à fabriquer un change Pijul valide
+(https://pijul.org/manual/theory). La présentation générale de la théorie des
+patches et de la commutation confirme que l'objet pertinent est le change avec
+ses dépendances, pas seulement un instantané de fichiers
+(https://pijul.org/manual/why_pijul.html). Pour le contexte de recherche plus
+large, *Current Concepts in Version Control Systems* (Petr Baudiš, arXiv:1405.3496)
+passe en revue les architectures des VCS et leurs compromis
+(https://arxiv.org/abs/1405.3496). Ces sources motivent de conserver Pijul comme
+autorité pour produire les changes ; elles ne démontrent pas le comportement
+précis de beta.24, qui reste à tester.
