@@ -101,8 +101,12 @@ passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
   --ref refs/heads/pr-43=refs/remotes/pr/43
 ```
 
-Les commandes suivantes décrivent l'interface cible ; le pipeline merge et
-l'opérateur persistant ne sont pas encore implémentés :
+Le pipeline d'import est partiellement câblé. `operator queue` lit les conflits
+du channel `integration` ; `operator submit` applique un change déjà enregistré
+et ajoute des événements à `gateway-audit.jsonl`. La file persistante et
+l'attribution des conflits aux PRs restent à faire. Le mode `linear` peut
+tenter un export local si `pijul-export` est installé séparément ;
+`merge-topology` reste incomplet :
 
 ```sh
 passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
