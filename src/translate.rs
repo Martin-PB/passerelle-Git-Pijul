@@ -382,3 +382,10 @@ pub fn export_integration(
         )),
     }
 }
+
+fn now_iso() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| format!("unix:{}", duration.as_secs()))
+        .unwrap_or_else(|_| "unix:0".into())
+}
