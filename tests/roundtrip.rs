@@ -235,7 +235,9 @@ fn sibling_branches_then_rerun_preserves_base_and_mapping() {
         passerelle_git_pijul::translate::translate_pr_from_mirror(
             &mirror, &pijul_repo, &scratch, &base, pr, &mut ledger,
         )
-        .unwrap_or_else(|error| panic!("sibling import {} failed: {error}", pr.number));
+        .unwrap_or_else(|error| {
+            panic!("sibling import {} failed: {error}", pr.number)
+        });
     }
 
     // Re-run the first PR after the second sibling has been imported. This
@@ -275,7 +277,12 @@ fn git_commits_between(mirror: &Path, base: &str, head: &str) -> Vec<String> {
         ],
     );
     assert!(ok, "cannot enumerate synthetic commit range: {output}");
-    output.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect()
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
