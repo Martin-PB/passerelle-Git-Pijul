@@ -107,12 +107,20 @@ structure PatchModel where
 /-! ## 3. Ledger contract -/
 
 structure Ledger where
-  gitToChange : Oid → Option ChangeId
+  entries : List (Oid × ChangeId)
 
-/-- Each Git OID has at most one recorded change by the function-shaped
-    representation. The reverse direction is not assumed injective: the
-    design must decide whether shared ancestors reuse change identity. -/
-def Ledger.Functional (_ledger : Ledger) : Prop := True
+/-- The ledger may not assign two distinct change identities to one Git OID.
+    The reverse direction is not assumed injective: the design must decide
+    whether shared ancestors reuse change identity. -/
+def Ledger.Functional (ledger : Ledger) : Prop :=
+  ∀ oid c₁ c₂, (oid, c₁) ∈ ledger.entries →
+    (oid, c₂) ∈ ledger.entries → c₁ = c₂
+
+theorem Ledger.recorded_change_unique (ledger : Ledger)
+    (h : ledger.Functional) (oid : Oid) (c₁ c₂ : ChangeId)
+    (h₁ : (oid, c₁) ∈ ledger.entries)
+    (h₂ : (oid, c₂) ∈ ledger.entries) : c₁ = c₂ :=
+  h oid c₁ c₂ h₁ h₂
 
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
