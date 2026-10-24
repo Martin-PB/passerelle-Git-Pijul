@@ -471,7 +471,7 @@ mod bare_mirror_tests {
             sha
         );
         assert_eq!(
-            git(&mirror, &["rev-list", "--reverse", &format!("{sha}^..{sha}")])
+            git(&mirror, &["rev-list", "--reverse", "--all"])
                 .expect("rev-list in bare mirror"),
             sha
         );
