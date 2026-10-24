@@ -261,12 +261,24 @@ pas le channel ne vaut jamais `Clean`. Les chemins conflictuels sont rapportés
 implémenter. L'export refuse les conflits et changements non enregistrés.
 
 
-### Caveat de version sur la signature de `pijul git`
+### Blocage de version sur la signature de `pijul git`
 
-La documentation amont de la branche `main` consultée le 24/10/2026 affiche
-`pijul git [repo-path]`, tandis que la source beta.24 décrite plus haut dans
-ce spike expose `pijul git [git_path] [pijul_path]`. La passerelle conserve
-provisoirement la signature à deux chemins du contrat beta ciblé ; elle ne
-doit pas être considérée validée tant que le binaire exact beta.24 n'a pas
-confirmé cette interface. Ne pas substituer la syntaxe de `main` sans
-arbitrer explicitement la version de Pijul cible.
+La documentation amont consultée le 24/10/2026 affiche `pijul git [repo-path]`.
+L'inspection du fichier source amont `pijul/src/commands/git.rs` sur la
+branche `main` confirme un seul argument optionnel `repo_path` ; le code
+ouvre ensuite le dépôt Git à `repo.path` et crée le dépôt Pijul à cet endroit
+si nécessaire. Cela contredit la signature à deux chemins mentionnée plus
+haut dans ce spike.
+
+**Conclusion corrigée :** la signature à deux chemins n'est pas confirmée et
+ne doit pas être décrite comme un contrat beta.24 vérifié. Le code de la
+passerelle passe actuellement deux chemins à `pijul git`, donc l'import
+reste bloqué tant que la signature du binaire beta.24 ciblé et la stratégie
+de partage du dépôt Pijul ne sont pas résolues ensemble. Retirer simplement
+le second argument n'est pas une correction suffisante : cela changerait
+l'emplacement du dépôt Pijul et invaliderait le partage de l'état/cache supposé
+par le mapping des commits. Aucun round-trip ne doit être revendiqué avant
+une correction cohérente et un test d'intégration exécuté avec beta.24.
+
+Sources de vérification : manuel officiel `pijul git` et source amont
+`pijul/src/commands/git.rs`, consultés le 24/10/2026.
