@@ -7,7 +7,7 @@
 //! Merge-topology export remains unsupported.
 
 use crate::ExportMode;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Human-readable plan of what will be pushed, per PR, for a given export
@@ -79,6 +79,17 @@ fn delete_ref(mirror: &Path, reference: &str) {
             .arg(mirror)
             .args(["update-ref", "-d", reference])
             .status();
+    }
+}
+
+struct TemporaryRef {
+    mirror: PathBuf,
+    reference: String,
+}
+
+impl Drop for TemporaryRef {
+    fn drop(&mut self) {
+        delete_ref(&self.mirror, &self.reference);
     }
 }
 
@@ -192,6 +203,10 @@ pub fn export_linear_with_pijul_export(
             format!("temporary export ref {staging_ref} already exists"),
         ));
     }
+    let _temporary_ref = TemporaryRef {
+        mirror: git_mirror.clone(),
+        reference: staging_ref.clone(),
+    };
 
     let exporter = Command::new("pijul-export")
         .args([
