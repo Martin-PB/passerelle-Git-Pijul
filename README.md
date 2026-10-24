@@ -41,9 +41,9 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 
 ## Pipeline
 
-1. **Ingest** — fetch des branches entrantes (shallow, `git fetch` de n'importe quel remote).
-2. **Traduction aller** — `pijul git` : un channel par branche entrante (convention `pr-<n>` si numérotée), base = branche cible. Le **ledger** enregistre `SHA ↔ change-hash` : idempotence, audit, détection de force-push.
-3. **Fusion dans Pijul** — un channel `integration` reçoit les changes de toutes les branches. Les patchs indépendants **commutent** : une classe entière des « conflits » Git disparaît ici.
+1. **Ingest** — fetch des refs entrantes dans un miroir Git bare, avec historique complet. Le cœur ne suppose pas que les frontières d'un clone shallow soient compatibles avec l'import de l'histoire par `pijul git`.
+2. **Traduction aller** — `pijul git` : un channel interne par commit importé ; les channels nommés (`pr-<n>`, `integration`) restent la surface opérateur. Le ledger enregistre `SHA ↔ change-hash` pour l'idempotence et l'audit.
+3. **Fusion dans Pijul** — un channel `integration` reçoit les changes des branches. Les patchs indépendants **commutent** : une classe entière des « conflits » Git disparaît ici.
 4. **Tri** — trois issues seulement :
    - `Clean` — les changes commutent ;
    - `AutoResolved` — règle déterministe (contenu identique, lint, sémantique `union`/`ours`) ; la résolution est un change dédié, étiqueté pour l'audit ;
@@ -52,6 +52,13 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 6. **Traduction retour** — le channel `integration` devient une branche Git :
    - `--export-mode linear` : un commit par change, ordre des dépendances, auteurs/dates/messages préservés ;
    - `--export-mode merge-topology` : un merge commit par branche entrante, topologie de fusions lisible sur n'importe quel hébergement Git.
+
+## État d'implémentation
+
+- **Ingest Git (première tranche)** : implémentation en cours sur une branche dédiée. Le miroir bare est initialisé explicitement, les refs sont épinglées, et une tête différente du SHA attendu est refusée. Des tests d'intégration sur dépôts synthétiques couvrent ces cas.
+- **Traduction Git → Pijul complète** : pas encore validée ; les fonctions de traduction existantes contiennent encore des stubs.
+- **Export Pijul → Git** : pas encore implémenté ; les fonctions d'export existantes contiennent encore des stubs.
+- **P0 round-trip** : non validé. Le test de bout en bout reste ignoré tant que l'import et l'export réels ne sont pas implémentés. Aucun résultat NOT RUN ne doit être présenté comme PASS.
 
 ## Frontière opérateur (stricte)
 
@@ -75,10 +82,11 @@ connaît, ne tague et ne favorise aucun producteur de résolution.
 export(import(x)) == x   (sans perte sur le texte)
 ```
 
-Prouvée sur un corpus de dépôts tests avant toute feature (voir
-`tests/properties.rs` pour les invariants purs, le harnas p0 dans
-`tests/harness/` pour le round-trip complet, et `docs/design-import.md`
-pour le design des deux sens, briques existantes comprises).
+Le harnais synthétique est défini dans `tests/roundtrip.rs` et
+`tests/harness/`. Les tests actuellement exécutables vérifient notamment
+que les scénarios annoncés conflictuels le sont réellement sous Git et que
+l'inventaire de texte est sans perte ; le test de bout en bout reste bloqué
+sur l'implémentation des backlogs 2.2 et 2.3.
 
 ## Usage (forme cible)
 
@@ -94,7 +102,7 @@ passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
 
 ## Roadmap
 
-- [ ] **P0 — Preuve de round-trip** : importer 3 branches en conflit, fusionner, exporter ; `export(import(x)) == x` vert sur le corpus
+- [ ] **P0 — Preuve de round-trip** : importer 3 branches en conflit, fusionner, exporter ; `export(import(x))` vert sur le corpus synthétique
 - [ ] **P1 — Auto** : règles de tri + auto-résolution des conflits triviaux
 - [ ] **P2 — Opérateur** : file persistante + CLI interactif + changes de résolution audités
 - [ ] **P3 — Production** : daemon persistant, multi-dépôts, greffons d'hébergement (merge queue GitHub, équivalents GitLab/Nest) en frontaux minces du cœur
