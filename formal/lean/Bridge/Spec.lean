@@ -113,6 +113,16 @@ theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
       exact Nat.lt_of_le_of_lt (ancestor_rank_le h hprev)
         (parent_edge_rank_lt h edge)
 
+/-- The modeled ancestry relation is antisymmetric: a finite ranked Git
+    history cannot contain a nontrivial cycle. -/
+theorem ancestry_antisymmetric (h : GitHistory) {a b : Oid}
+    (hab : Ancestor h a b) (hba : Ancestor h b a) : a = b := by
+  by_contra hne
+  have hlt₁ : h.rank a < h.rank b := ancestor_rank_lt_of_ne h hab hne
+  have hlt₂ : h.rank b < h.rank a :=
+    ancestor_rank_lt_of_ne h hba (Ne.symm hne)
+  exact (Nat.lt_asymm hlt₁ hlt₂)
+
 /-- A commit is in the base-to-head range iff base is its ancestor and it
     is itself an ancestor of head. -/
 def InRange (h : GitHistory) (base head commit : Oid) : Prop :=
@@ -216,6 +226,42 @@ def IsSingletonDelta (obs : MappingObservation) : Prop :=
   obs.change ∈ obs.after ∧
   obs.change ∉ obs.before ∧
   ∀ c, c ∈ obs.after → c ∉ obs.before → c = obs.change
+
+/-- If a before/after observation satisfies the singleton-delta contract,
+    the newly introduced change is the unique member of the set difference.
+    The caller is responsible for supplying canonicalized, duplicate-free
+    lists; this theorem does not identify a diff with upstream Pijul semantics. -/
+theorem singleton_delta_unique (obs : MappingObservation)
+    (hdelta : IsSingletonDelta obs) (candidate : ChangeId)
+    (hafter : candidate ∈ obs.after)
+    (hnew : candidate ∉ obs.before) : candidate = obs.change :=
+  hdelta.2.2 candidate hafter hnew
+
+/-- Two observations of the same Git OID cannot report different changes if
+    both satisfy the singleton-delta contract and refer to the same canonical
+    before/after set difference. -/
+theorem singleton_delta_same_mapping
+    (obs₁ obs₂ : MappingObservation)
+    (hOid : obs₁.gitOid = obs₂.gitOid)
+    (hBefore : obs₁.before = obs₂.before)
+    (hAfter : obs₁.after = obs₂.after)
+    (h₁ : IsSingletonDelta obs₁) (h₂ : IsSingletonDelta obs₂) :
+    obs₁.change = obs₂.change := by
+  have h₁in : obs₁.change ∈ obs₂.after := by
+    rw [← hAfter]
+    exact h₁.1
+  have h₁new : obs₁.change ∉ obs₂.before := by
+    rw [← hBefore]
+    exact h₁.2.1
+  have h₂in : obs₂.change ∈ obs₁.after := by
+    rw [hAfter]
+    exact h₂.1
+  have h₂new : obs₂.change ∉ obs₁.before := by
+    rw [hBefore]
+    exact h₂.2.1
+  have h₁eq : obs₁.change = obs₂.change :=
+    h₂.2.2 obs₁.change h₁in h₁new
+  exact h₁eq
 
 /-! ## 5. Import protocol and fail-closed publication -/
 
