@@ -88,7 +88,7 @@ fn snapshot_text_is_deterministic() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "squelette historique : nécessite le pipeline miroir→channels et la matérialisation de la branche exportée"]
+#[ignore = "squelette historique ; pipeline miroir et matérialisation à finaliser"]
 fn roundtrip_property_end_to_end() {
     if !skip_unless(harness::have("git"), "git") || !skip_unless(harness::have("pijul"), "pijul") {
         return;
