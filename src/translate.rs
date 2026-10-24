@@ -327,8 +327,14 @@ pub fn translate_pr_from_mirror(
         }
     }
 
+    // Pijul beta.24 may drop intermediate OID channels as soon as their
+    // children are imported. Snapshot each parent state before importing its
+    // child, then compute the one-change delta immediately while the child
+    // channel is still available. Importing the entire head first and mapping
+    // afterward is incorrect for histories longer than one commit.
     import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-    import_git_commit(git_mirror, pijul_repo, &pr.head_sha, scratch)?;
+    ensure_channel_from(pijul_repo, &base.sha, &format!("pr-{}", pr.number))?;
+    ensure_channel_from(pijul_repo, &base.sha, "integration")?;
 
     let commits = git(
         git_mirror,
@@ -346,7 +352,11 @@ pub fn translate_pr_from_mirror(
                 ),
             ));
         }
-        let change = change_for_git_commit(pijul_repo, sha, parts[1])?;
+        let parent_sha = parts[1];
+        let before = changes_on_channel(pijul_repo, parent_sha)?;
+        import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
+        let after = changes_on_channel(pijul_repo, sha)?;
+        let change = unique_new_change(&before, &after, sha)?;
         if !ledger.record(Entry {
             git_sha: sha.to_owned(),
             pijul_change: change,
@@ -361,9 +371,7 @@ pub fn translate_pr_from_mirror(
         }
     }
 
-    ensure_channel_from(pijul_repo, &base.sha, &format!("pr-{}", pr.number))?;
     pull_channel_into(pijul_repo, &pr.head_sha, &format!("pr-{}", pr.number))?;
-    ensure_channel_from(pijul_repo, &base.sha, "integration")?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
     let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
     ledger.save(&crate::ledger::ledger_path(ledger_root))?;
