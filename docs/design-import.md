@@ -56,10 +56,13 @@ exactement par commit — aucune heuristique d'ordre à inventer.
    d'intégration, et non déduite du seul code source.
 4. **Base** : la branche cible (`main` Git) est importée d'abord (même
    mécanique) : le channel de son OID de tête sert d'ancêtre commun.
-5. **Mapping** : pour chaque commit de `git rev-list <base>..<head>` :
-   `change = changes(<OID>) − changes(<OID>^)`, entrée de ledger
-   `git_sha ↔ pijul_change` (direction GitToPijul), détection de force-push
-   inchangée (un SHA déjà ledgé vers un change différent = force-push).
+5. **Mapping** : traiter `git rev-list <base>..<head>` oldest-first.
+   La source beta.24 supprime les channels OID des parents lorsqu'ils n'ont
+   plus de descendants à importer. Il faut donc lire `changes(parent)` avant
+   d'importer chaque commit, importer ce commit, puis lire immédiatement
+   `changes(commit)` et calculer la différence d'ensembles. Le mapping
+   `git_sha ↔ pijul_change` est alors inscrit dans le ledger ; un SHA déjà
+   lié à un autre change reste une erreur fermée.
 6. **Channel `pr-<n>`** : les channels `<OID>` sont un artefact interne de
    l'import, illisibles pour un opérateur. La passerelle matérialise un
    channel lisible `pr-<n>` et y applique les changes de la PR. L'exposition
@@ -73,10 +76,11 @@ exactement par commit — aucune heuristique d'ordre à inventer.
   import multi-branches : HEAD pilote l'import ; parallélisme ; pas de
   partage d'état git entre PRs. Coût : N runs `pijul git`, atténué par
   l'incrément.
-- **D2 — mapping par différence d'ensembles** entre `changes(<OID>)` et
-  `changes(<OID>^)` : déterministe, une commande `pijul log` par extrémité,
-  zéro accès à la base pristine. Doit être prouvé par le harnas 2.1 dès
-  qu'exécutable (à crédits CI réapprovisionnés).
+- **D2 — mapping par différence d'ensembles capturée en ligne** :
+  lire l'état du parent avant l'import de l'enfant, puis l'état de l'enfant
+  juste après. La source beta.24 supprime des channels OID parents pendant
+  l'import ; les états ne peuvent donc pas tous être interrogés après un
+  import global de la tête. À prouver par le harnas 2.1 à l'exécution.
 - **D3 — les channels `<OID>` ne sortent jamais de la passerelle** : seule
   la couche nommée `pr-<n>`/`integration` est exposée.
 - **D4 — ordre d'application** : `git rev-list` oldest-first (les dépendances
