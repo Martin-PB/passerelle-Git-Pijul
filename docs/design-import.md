@@ -532,7 +532,7 @@ Le modèle Lean précise désormais que Git ne stocke pas un prédicat de confli
 La spécification `formal/lean/Bridge/Spec.lean` contient maintenant trois obligations prouvées dans le modèle :
 
 - `GitHistory.ancestry_antisymmetric` : le rang strict interdit qu'un commit distinct soit ancêtre l'un de l'autre dans les deux sens ;
-- `singleton_delta_unique` et `singleton_delta_same_mapping` : une observation de différence d'ensembles satisfaisant le contrat singleton identifie un seul change, et deux observations avec mêmes ensembles avant/après ne peuvent produire deux mappings différents ;
+- `singleton_delta_unique` et `singleton_delta_same_difference` : une observation de différence d'ensembles satisfaisant le contrat singleton identifie un seul change, et deux observations avec mêmes ensembles avant/après ne peuvent produire deux mappings différents ;
 - `tree_refinement_along_ancestry` : si l'état de base respecte la relation d'arbres et si chaque étape parent→enfant préserve localement cette relation, alors elle est préservée le long du chemin d'ascendance.
 
 Ces théorèmes ne sont pas des axiomes de correction du binaire. En particulier, `TreeRefinement.edgePreserves` est une obligation que le traducteur concret devra démontrer ou justifier par un contrat de raffinement vérifié. Le théorème de composition montre comment une preuve locale peut se propager, mais ne prouve pas encore que `pijul git` satisfait cette obligation. Les listes avant/après du mapping doivent aussi être canoniques et représenter des ensembles ; cette précondition reste explicitement à garantir par l'implémentation.
