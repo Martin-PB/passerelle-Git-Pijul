@@ -95,7 +95,7 @@ exactement par commit — aucune heuristique d'ordre à inventer.
   merge-topology.
 
 
-## 6. Briques existantes (recherche du 24/10/2026 — ne pas réimplémenter avant d'avoir vérifié)
+## 5. Briques existantes (recherche du 24/10/2026 — ne pas réimplémenter avant d'avoir vérifié)
 
 Réponse à la vigilance légitime « ne recréons-nous pas pijul git ? » : non —
 l'import est appelé comme boîte noire (D1). La même vigilance s'applique au
@@ -144,7 +144,7 @@ est la couche orchestration + le chaînon manquant, pas une réécriture.
 - **D8** : étudier les opérations ensemblistes de `git-pijul` pour le
   triage (2.5), où la sémantique union/intersection des changes est centrale.
 
-## 5. Prochaines étapes
+## 6. Prochaines étapes
 
 1. Faire tourner le harnas 2.1 (crédits CI) pour valider le corpus.
 2. Implémenter 2.2 selon D1–D5, avec le mapping D2 couvert par le test
