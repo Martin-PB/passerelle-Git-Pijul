@@ -229,3 +229,26 @@ dépendance de compilation et ne pas prétendre que l'export 2.3 est résolu.
 Références consultées :
 - README et description de l'interface : https://nest.pijul.com/andybalholm/pijul-export
 - Fichier COPYING : https://nest.pijul.com/andybalholm/pijul-export:main/tree/IYGPU3IZMM2BI.LMAAA
+
+
+## 10. Export linéaire : adaptateur expérimental (24/10/2026)
+
+Un adaptateur a été ajouté dans `src/export.rs`. Il invoque un exécutable
+`pijul-export` installé séparément, transmet son flux à `git fast-import`
+dans le miroir bare, puis ne publie la ref locale
+`refs/heads/gateway/integration` qu'après deux contrôles :
+
+1. le commit exporté descend de la base Git épinglée ;
+2. l'arbre Git exporté est identique à l'arbre du working copy Pijul sur le
+   channel `integration` (hors métadonnées internes `.pijul` et `.ignore`).
+
+Une ref de sortie existante n'est réutilisée que si sa base et son arbre sont
+identiques ; une ref différente n'est jamais écrasée. L'adaptateur n'effectue
+aucun push distant. Le mode `merge-topology` reste explicitement non pris en
+charge.
+
+**Non validé à l'exécution.** Cet adaptateur dépend d'un binaire externe dont
+la compatibilité exacte avec la version beta de Pijul n'a pas été vérifiée.
+Le binaire n'est ni incorporé ni redistribué ; le statut de licence upstream
+reste à clarifier. L'égalité d'arbre est vérifiée à l'exécution, mais cela ne
+remplace pas le test P0 synthétique de bout en bout.
