@@ -195,8 +195,18 @@ pub fn export_linear_with_pijul_export(
         ));
     }
 
-    let exported_sha = git(&git_mirror, &["rev-parse", &format!("{staging_ref}^{{commit}}")], None, None)?;
-    let exported_tree = git(&git_mirror, &["rev-parse", &format!("{exported_sha}^{{tree}}")], None, None)?;
+    let exported_sha = git(
+        &git_mirror,
+        &["rev-parse", &format!("{staging_ref}^{{commit}}")],
+        None,
+        None,
+    )?;
+    let exported_tree = git(
+        &git_mirror,
+        &["rev-parse", &format!("{exported_sha}^{{tree}}")],
+        None,
+        None,
+    )?;
     if exported_tree != expected_tree {
         delete_ref(&git_mirror, &staging_ref);
         return Err(std::io::Error::new(
@@ -221,8 +231,18 @@ pub fn export_linear_with_pijul_export(
     }
 
     if ref_exists(&git_mirror, output_ref)? {
-        let existing_sha = git(&git_mirror, &["rev-parse", &format!("{output_ref}^{{commit}}")], None, None)?;
-        let existing_tree = git(&git_mirror, &["rev-parse", &format!("{existing_sha}^{{tree}}")], None, None)?;
+        let existing_sha = git(
+            &git_mirror,
+            &["rev-parse", &format!("{output_ref}^{{commit}}")],
+            None,
+            None,
+        )?;
+        let existing_tree = git(
+            &git_mirror,
+            &["rev-parse", &format!("{existing_sha}^{{tree}}")],
+            None,
+            None,
+        )?;
         delete_ref(&git_mirror, &staging_ref);
         let existing_is_descendant = Command::new("git")
             .args(["--git-dir"])
