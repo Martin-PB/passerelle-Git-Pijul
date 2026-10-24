@@ -81,7 +81,7 @@ Le script accepte :
 RUN_SIBLING_RERUN_TEST=1 bash scripts/verify-local.sh
 ```
 
-Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est maintenant écrit dans `tests/roundtrip.rs` et ignoré par défaut. Le script vérifie son existence, puis le lance explicitement avec `--ignored`. Ce test n'a pas encore été exécuté : sa présence ne valide pas le scénario.
+Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est maintenant écrit dans `tests/roundtrip.rs`, ignoré par défaut et vérifie explicitement que la version observée est `1.0.0-beta.24`. Le script vérifie son existence, puis le lance explicitement avec `--ignored`. Ce test n'a pas encore été exécuté : sa présence ne valide pas le scénario.
 
 Le test utilise uniquement des dépôts synthétiques et couvre :
 1. une base commune et deux branches sœurs distinctes ;
