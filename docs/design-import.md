@@ -487,3 +487,16 @@ Cette première tranche formalise :
 La sémantique des changes Pijul n'est volontairement pas déclarée prouvée : elle est identifiée comme une frontière à formaliser. Les théorèmes de fidélité, préservation des conflits, dépendances et idempotence sont listés comme obligations, et non introduits comme axiomes. La prochaine tranche doit définir une relation de raffinement explicite entre historique Git et modèle de patchs Pijul.
 
 **Validation :** Lean/Lake ne sont pas installés dans l'environnement courant. Le fichier n'a donc pas été compilé ni vérifié par Lean ; aucun statut de preuve n'est revendiqué. Il faudra ajouter une configuration Lake reproductible, compiler le modèle, puis remplacer les commentaires d'obligations par des définitions et théorèmes vérifiés.
+
+### Deuxième tranche Lean : contrat d'acceptation P0 (24/10/2026)
+
+`formal/lean/Bridge/Spec.lean` définit maintenant explicitement :
+
+- `TreeEq` : égalité extensionnelle des arbres matérialisés ;
+- `P0Observation` et `P0Equivalent` : le critère P0 porte sur l'équivalence du contenu de chaque commit importé **et** sur l'équivalence des observations de conflits entre paires de commits importés ;
+- `GitTopologyEquivalent` : la préservation exacte des arêtes parentales Git est un objectif séparé, pas une exigence implicite de P0 ;
+- `parent_edge_rank_lt` et `ancestor_rank_le` : le rang certifie formellement la monotonie sur les arêtes et les chemins d'ascendance.
+
+Ces définitions rendent le critère d'acceptation explicite, mais **ne prouvent pas** que le programme Rust ou `pijul git` le satisfait. Les relations d'observation de conflits restent abstraites jusqu'à ce qu'elles soient reliées à une sémantique Pijul concrète et à des observations définies de l'interface. Aucun axiome ne doit être ajouté pour postuler cette équivalence.
+
+**Validation :** cette mise à jour n'a pas été compilée par Lean : aucun exécutable Lean/Lake n'est disponible dans l'environnement de travail. Les preuves écrites restent donc non vérifiées jusqu'à une compilation réelle. Aucun workflow GitHub Actions n'a été lancé.
