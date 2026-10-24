@@ -125,7 +125,9 @@ pub fn import_git_commit(
     }
 
     std::fs::create_dir_all(scratch)?;
-    std::fs::create_dir_all(pijul_repo)?;
+    if let Some(parent) = pijul_repo.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let worktree = scratch.join(format!(
         "git-import-{}-{}",
         std::process::id(),
