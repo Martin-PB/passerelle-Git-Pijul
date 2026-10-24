@@ -144,9 +144,35 @@ est la couche orchestration + le chaînon manquant, pas une réécriture.
 - **D8** : étudier les opérations ensemblistes de `git-pijul` pour le
   triage (2.5), où la sémantique union/intersection des changes est centrale.
 
-## 6. Prochaines étapes
+## 6. État de l'implémentation (24/10/2026)
 
-1. Faire tourner le harnas 2.1 (crédits CI) pour valider le corpus.
-2. Implémenter 2.2 selon D1–D5, avec le mapping D2 couvert par le test
-   `roundtrip_property_end_to_end` (dé-ignoré à ce moment-là).
-3. 2.3 (export réel) selon le même canevas : spike d'abord si nécessaire.
+L'arbitrage Pijulation 5.1 est tranché : **corpus synthétiques uniquement pour
+P0**. Les dépôts sont générés en tests dans des répertoires temporaires ; aucun
+projet tiers, aucune licence externe et aucun accès réseau ne sont requis.
+
+Première tranche du code d'ingest sur la branche `agent/p0-synthetic-roundtrip` :
+
+- initialisation explicite d'un miroir Git bare (au lieu d'appeler `git fetch`
+  dans un simple répertoire) ;
+- récupération des refs génériques avec historique complet ;
+- épinglage des têtes sous `refs/remotes/pr/<n>` comme convention locale ;
+- vérification du SHA attendu pour refuser une ref qui a bougé entre l'événement
+  d'hébergement et l'ingest ;
+- tests d'intégration synthétiques pour le miroir bare, le parent de commit et
+  le refus d'une tête périmée / d'un répertoire non-Git non vide.
+
+**Statut de validation : NOT RUN.** L'environnement d'exécution courant ne peut
+pas cloner le dépôt depuis GitHub ; les tests n'ont donc pas été compilés ni
+exécutés ici. Le test de round-trip reste ignoré et les fonctions de traduction
+et d'export contiennent encore des stubs. Cette tranche ne constitue pas une
+preuve P0 et ne doit pas être annoncée comme telle.
+
+## 7. Prochaines étapes
+
+1. Exécuter localement les tests synthétiques et corriger tout échec réel.
+2. Implémenter l'import 2.2 selon D1–D5 : clone de travail isolé par ref,
+   appel à `pijul git`, mapping SHA ↔ change par différence d'ensembles, puis
+   channels nommés ; déverrouiller le test end-to-end seulement lorsque ces
+   opérations sont réellement exécutables.
+3. Auditer `pijul-export` (licence, beta.24, auteurs/dates et marks), puis
+   implémenter l'export 2.3 avant de revendiquer `export(import(x)) == x`.
