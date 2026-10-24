@@ -523,3 +523,6 @@ Le pin est volontairement explicite pour rendre les résultats reproductibles ; 
 
 Les lois de `TreeEq` sont aussi énoncées comme théorèmes (`treeEq_refl`, `treeEq_symm`, `treeEq_trans`) plutôt que supposées. Elles sont simples mais établissent les bases algébriques de la relation d'égalité des arbres. Elles restent à confirmer par `lake build Bridge`.
 Un lemme supplémentaire, `ancestor_rank_lt_of_ne`, établit que deux commits distincts reliés par l'ascendance ont un rang strictement croissant. Il renforce la propriété de fondation du modèle de DAG ; il ne prouve pas à lui seul que le graphe observé depuis Git correspond au graphe réellement importé par Pijul.
+### Précision sémantique sur les conflits P0
+
+Le modèle Lean précise désormais que Git ne stocke pas un prédicat de conflit intrinsèque sur chaque commit. `gitConflict` doit représenter le résultat d'une tentative de merge explicitement définie par le harnais ; `pijulConflict` doit représenter le résultat de l'opération Pijul correspondante. L'équivalence de ces observations ne devient un contrat testable qu'une fois cette correspondance d'opérations définie. Il serait incorrect d'interpréter le prédicat abstrait comme une preuve générale d'équivalence des notions de conflit des deux VCS.
