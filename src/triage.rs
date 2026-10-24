@@ -76,6 +76,13 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         ));
     }
 
+    if status.contains("Unrecorded changes") || status.contains("Untracked files") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "integration has unrecorded or untracked work; refusing to classify it as clean",
+        ));
+    }
+
     let mut in_conflicts = false;
     let mut paths = Vec::new();
     for line in status.lines() {
