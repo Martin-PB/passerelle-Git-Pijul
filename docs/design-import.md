@@ -538,3 +538,19 @@ La spécification `formal/lean/Bridge/Spec.lean` contient maintenant trois oblig
 Ces théorèmes ne sont pas des axiomes de correction du binaire. En particulier, `TreeRefinement.edgePreserves` est une obligation que le traducteur concret devra démontrer ou justifier par un contrat de raffinement vérifié. Le théorème de composition montre comment une preuve locale peut se propager, mais ne prouve pas encore que `pijul git` satisfait cette obligation. Les listes avant/après du mapping doivent aussi être canoniques et représenter des ensembles ; cette précondition reste explicitement à garantir par l'implémentation.
 
 Le protocole de test et de preuve local est consigné dans [`docs/local-verification.md`](local-verification.md), exécuté par [`scripts/verify-local.sh`](../scripts/verify-local.sh). Tant que le build n'a pas été lancé sur Linux, ces nouveaux théorèmes sont **écrits mais non validés par Lean**.
+
+### Formalisation Lean — idempotence locale du ledger
+
+Commit : [2151578](https://github.com/Martin-PB/passerelle-Git-Pijul/commit/215157846d541c6a16aff89f212271c0a683607a).
+
+La spécification ajoute `Ledger.recordIfAbsent` et le théorème
+`Ledger.recordIfAbsent_idempotent` : enregistrer deux fois la même paire
+`(Git OID, change Pijul)` ne duplique pas cette entrée dans le ledger abstrait.
+
+**Portée limitée :** cela prouve uniquement la suppression des doublons exacts
+dans le modèle de données. Cela ne prouve ni l'idempotence de la commande
+`pijul git`, ni le comportement d'une nouvelle importation, ni le rejet
+d'une association contradictoire où un même OID serait lié à un autre change.
+La fonctionnalité reste à compiler avec `lake build Bridge`; aucune preuve
+Lean n'est considérée vérifiée avant cette compilation.
+
