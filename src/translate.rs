@@ -242,6 +242,17 @@ pub fn translate_pr_from_mirror(
         ));
     }
 
+    let base_is_ancestor = Command::new("git")
+        .args(["merge-base", "--is-ancestor", &base.sha, &pr.head_sha])
+        .current_dir(git_mirror)
+        .status()?;
+    if !base_is_ancestor.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("base {} is not an ancestor of PR {} head {}", base.sha, pr.number, pr.head_sha),
+        ));
+    }
+
     let previous_heads: Vec<String> = ledger
         .by_sha
         .values()
@@ -305,7 +316,8 @@ pub fn translate_pr_from_mirror(
     pull_channel_into(pijul_repo, &pr.head_sha, &format!("pr-{}", pr.number))?;
     ensure_channel_from(pijul_repo, &base.sha, "integration")?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
-    ledger.save(&crate::ledger::ledger_path(scratch))?;
+    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
+    ledger.save(&crate::ledger::ledger_path(ledger_root))?;
     Ok(())
 }
 
