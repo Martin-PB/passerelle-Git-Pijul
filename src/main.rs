@@ -93,11 +93,26 @@ fn ingest_cmd(args: &[String]) {
     }
 }
 
+fn git_rev_parse(repo: &std::path::Path, reference: &str) -> std::io::Result<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", &format!("{reference}^{{commit}}")])
+        .current_dir(repo)
+        .output()?;
+    if !output.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
 fn merge_prs(args: &[String]) {
     let mut prs = Vec::new();
     let mut base = String::from("main");
     let mut export_mode = ExportMode::MergeTopology;
     let mut workdir = PathBuf::from(".gateway-work");
+    let mut mirror = PathBuf::from(".gateway-mirror");
 
     let mut i = 0;
     while i < args.len() {
@@ -129,6 +144,14 @@ fn merge_prs(args: &[String]) {
                 workdir = PathBuf::from(value);
                 i += 2;
             }
+            "--mirror" => {
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("--mirror needs a value");
+                    std::process::exit(2);
+                };
+                mirror = PathBuf::from(value);
+                i += 2;
+            }
             n => match n.parse::<u64>() {
                 Ok(number) => {
                     prs.push(number);
@@ -142,20 +165,61 @@ fn merge_prs(args: &[String]) {
         }
     }
 
+    if prs.is_empty() {
+        eprintln!("merge-prs requires at least one PR number");
+        std::process::exit(2);
+    }
     println!("plan:\n  {}", export::plan(export_mode, &prs).join("\n  "));
-    println!(
-        "pipeline not yet executable end-to-end: ingest -> translate -> apply -> triage -> operator -> export ({export_mode:?})"
-    );
 
-    let l = ledger::Ledger::load(&ledger::ledger_path(&workdir))
+    let base_ref = if base.starts_with("refs/") {
+        base.clone()
+    } else {
+        format!("refs/remotes/base/{base}")
+    };
+    let base_sha = git_rev_parse(&mirror, &base_ref).unwrap_or_else(|error| {
+        eprintln!("cannot resolve base ref {base_ref}: {error}");
+        std::process::exit(1);
+    });
+    let base_info = passerelle_git_pijul::Base {
+        branch: base.clone(),
+        sha: base_sha,
+    };
+    let mut l = ledger::Ledger::load(&ledger::ledger_path(&workdir))
         .unwrap_or_else(|error| {
             eprintln!("ledger load failed: {error}");
             std::process::exit(1);
         });
-    // TODO(P0): wire generic refs to translate::translate_pr and export.
-    // TODO(P1): triage and deterministic auto-resolution.
-    // TODO(P2): persistent operator queue.
-    let _ = (&l, &prs, base);
+    let pijul_repo = workdir.join("pijul");
+    let scratch = workdir.join("scratch");
+    for number in &prs {
+        let head_ref = format!("refs/remotes/pr/{number}");
+        let head_sha = git_rev_parse(&mirror, &head_ref).unwrap_or_else(|error| {
+            eprintln!("cannot resolve PR {number} ref {head_ref}: {error}");
+            std::process::exit(1);
+        });
+        let pr = passerelle_git_pijul::PullRequest {
+            number: *number,
+            title: format!("PR {number}"),
+            author: "unknown".into(),
+            head_sha,
+            head_ref,
+        };
+        if let Err(error) = translate::translate_pr_from_mirror(
+            &mirror,
+            &pijul_repo,
+            &scratch,
+            &base_info,
+            &pr,
+            &mut l,
+        ) {
+            eprintln!("translation of PR {number} failed: {error}");
+            std::process::exit(1);
+        }
+        println!("imported PR {number} into Pijul channel pr-{number}");
+    }
+
+    println!("Pijul integration channel prepared.");
+    println!("triage/operator resolution and Git export remain unimplemented; no Git branch was written.");
 }
 
 fn operator_cmd(args: &[String]) {
