@@ -56,8 +56,8 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 ## État d'implémentation
 
 - **Ingest Git (première tranche)** : implémentation en cours sur une branche dédiée. Le miroir bare est initialisé explicitement, les refs sont épinglées, et une tête différente du SHA attendu est refusée. Des tests d'intégration sur dépôts synthétiques couvrent ces cas.
-- **Traduction Git → Pijul complète** : pas encore validée ; les fonctions de traduction existantes contiennent encore des stubs.
-- **Export Pijul → Git** : pas encore implémenté ; les fonctions d'export existantes contiennent encore des stubs.
+- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Ce chemin n’est pas encore validé à l’exécution et les commits de merge Git sont refusés explicitement.
+- **Export Pijul → Git** : pas encore implémenté. `merge-prs` ne pousse ni n’écrit de branche Git.
 - **P0 round-trip** : non validé. Le test de bout en bout reste ignoré tant que l'import et l'export réels ne sont pas implémentés. Aucun résultat NOT RUN ne doit être présenté comme PASS.
 
 ## Frontière opérateur (stricte)
@@ -90,21 +90,22 @@ sur l'implémentation des backlogs 2.2 et 2.3.
 
 ## Usage
 
-L'ingest générique est la seule tranche du pipeline actuellement câblée dans
-la CLI. Elle prend un remote et des mappings source=destination, sans dépendre
-d'un hébergeur particulier :
+L’ingest générique prend un remote et des mappings source=destination, sans dépendre
+d’un hébergeur particulier. Pour utiliser ensuite `merge-prs`, épingle la base
+sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
 
 ```sh
 passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
   --ref refs/heads/main=refs/remotes/base/main \\
-  --ref refs/heads/feature-a=refs/remotes/incoming/feature-a
+  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
+  --ref refs/heads/pr-43=refs/remotes/pr/43
 ```
 
 Les commandes suivantes décrivent l'interface cible ; le pipeline merge et
 l'opérateur persistant ne sont pas encore implémentés :
 
 ```sh
-passerelle merge --head origin/branche-a origin/branche-b --base main --export-mode merge-topology
+passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
 passerelle operator queue
 passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
 
