@@ -176,3 +176,28 @@ preuve P0 et ne doit pas être annoncée comme telle.
    opérations sont réellement exécutables.
 3. Auditer `pijul-export` (licence, beta.24, auteurs/dates et marks), puis
    implémenter l'export 2.3 avant de revendiquer `export(import(x)) == x`.
+
+
+## 8. Implémentation ajoutée après l'arbitrage P0 (24/10/2026)
+
+La branche `agent/p0-synthetic-roundtrip` contient maintenant les primitives
+Rust suivantes dans `src/translate.rs` :
+
+- `import_git_commit(mirror, pijul_repo, sha, scratch)` vérifie que le SHA
+  est un commit résolu dans le miroir, crée un clone de travail isolé par
+  import, checkout le SHA en détaché, appelle le `pijul git` upstream et
+  supprime le clone temporaire. Le dépôt Pijul reste partagé pour permettre
+  au cache incrémental de l'import de fonctionner.
+- `changes_on_channel` lit les hashes via `pijul log --hash-only`.
+- `change_for_git_commit` calcule la différence entre l'ensemble de changes
+  du channel du commit et celui de son parent.
+- `unique_new_change` refuse les cas à zéro ou plusieurs changes au lieu de
+  fabriquer une correspondance approximative. Des tests purs couvrent les
+  trois cardinalités (1, 0, plusieurs).
+
+**Limites :** ces primitives ne sont pas encore câblées dans
+`translate_pr` / `merge-prs`; la création et l'application des channels
+`pr-<n>` et `integration` reste à faire. L'export Pijul → Git reste
+incomplet. Les tests Rust restent **NOT RUN** (Cargo indisponible dans
+l'environnement de travail) ; les commandes Pijul doivent être validées par
+exécution sur le binaire cible avant d'activer le round-trip P0.
