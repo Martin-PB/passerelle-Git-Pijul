@@ -15,9 +15,9 @@
 //!      `#[ignore]` car les fonctions de traduction sont des stubs TODO :
 //!      il se débloque avec 2.2 (import réel) et 2.3 (export réel).
 //!
-//! Le corpus est synthétique : la question 5.1 (dépôts réels, licences,
-//! taille) est un arbitrage opérateur en attente et ne bloque PAS cette
-//! partie du harnas.
+//! Le corpus est synthétique conformément à l'arbitrage opérateur 5.1 du
+//! 24/10/2026 : dépôts synthétiques uniquement pour le jalon P0. Les dépôts
+//! réels éventuels seront une extension ultérieure, hors de ce critère initial.
 
 use std::collections::BTreeMap;
 use std::path::Path;
