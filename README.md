@@ -56,7 +56,7 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 ## État d'implémentation
 
 - **Ingest Git (première tranche)** : implémentation en cours sur une branche dédiée. Le miroir bare est initialisé explicitement, les refs sont épinglées, et une tête différente du SHA attendu est refusée. Des tests d'intégration sur dépôts synthétiques couvrent ces cas.
-- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Ce chemin n’est pas encore validé à l’exécution et les commits de merge Git sont refusés explicitement.
+- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Le premier triage lit `pijul status` et bloque l’export si des conflits sont signalés. Ce chemin n’est pas encore validé à l’exécution et les commits de merge Git sont refusés explicitement.
 - **Export Pijul → Git** : un adaptateur expérimental `linear` peut invoquer un binaire externe `pijul-export` (non embarqué), puis vérifie l’ascendance depuis la base et l’égalité de l’arbre Git avec le working copy Pijul. `merge-topology` reste non implémenté. Aucun push distant n’est effectué.
 - **P0 round-trip** : non validé. Le test de bout en bout reste ignoré tant que l'import et l'export réels ne sont pas implémentés. Aucun résultat NOT RUN ne doit être présenté comme PASS.
 
