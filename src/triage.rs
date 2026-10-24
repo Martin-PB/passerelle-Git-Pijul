@@ -83,9 +83,17 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
             matches!(component, Component::Normal(_) | Component::CurDir)
         });
         let conflict_state = if safe {
-            std::fs::read_to_string(workdir.join(relative)).unwrap_or_else(|_| {
-                "Pijul reported a conflict; file is binary, unreadable, or unavailable.".into()
-            })
+            let file = workdir.join(relative);
+            match std::fs::symlink_metadata(&file) {
+                Ok(metadata) if metadata.file_type().is_file() => {
+                    std::fs::read_to_string(&file).unwrap_or_else(|_| {
+                        "Pijul reported a conflict; file is binary, unreadable, or unavailable."
+                            .into()
+                    })
+                }
+                _ => "Pijul reported a conflict; path is not a regular file, so content was not read."
+                    .into(),
+            }
         } else {
             "Pijul reported a conflict at a non-relative path; content not read.".into()
         };
