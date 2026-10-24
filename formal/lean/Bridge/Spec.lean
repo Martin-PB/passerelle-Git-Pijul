@@ -28,6 +28,19 @@ abbrev GitTree := Path → Option BlobId
     nothing about commit ancestry, change identity, or conflict semantics. -/
 def TreeEq (a b : GitTree) : Prop := ∀ path, a path = b path
 
+theorem treeEq_refl (tree : GitTree) : TreeEq tree tree := by
+  intro path
+  rfl
+
+theorem treeEq_symm {a b : GitTree} (h : TreeEq a b) : TreeEq b a := by
+  intro path
+  exact (h path).symm
+
+theorem treeEq_trans {a b c : GitTree}
+    (hab : TreeEq a b) (hbc : TreeEq b c) : TreeEq a c := by
+  intro path
+  exact Eq.trans (hab path) (hbc path)
+
 structure GitCommit where
   oid     : Oid
   parents : List Oid
