@@ -182,6 +182,102 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 }
 
 // ---------------------------------------------------------------------------
+// 3.1. Régression bloquante : branches sœurs puis rerun
+// ---------------------------------------------------------------------------
+
+/// Ce test ne saute volontairement pas quand les outils manquent : lorsqu'il
+/// est explicitement lancé pour valider le protocole, l'absence de Git/Pijul
+/// doit être visible comme un échec, pas comme un faux PASS.
+#[test]
+fn sibling_branches_then_rerun_preserves_base_and_mapping() {
+    assert!(harness::have("git"), "pré-requis manquant : git");
+    assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
+
+    let scenario = corpus()
+        .into_iter()
+        .find(|scenario| scenario.branches.len() >= 2)
+        .expect("le corpus P0 doit contenir un scénario avec deux branches sœurs");
+    let repo = tempfile::tempdir().expect("synthetic Git repo");
+    harness::build_git_repo(repo.path(), &scenario);
+    let (ok, base_sha) = harness::git(repo.path(), &["rev-parse", "main"]);
+    assert!(ok, "cannot resolve base main: {base_sha}");
+    let prs: Vec<_> = scenario
+        .branches
+        .iter()
+        .take(2)
+        .enumerate()
+        .map(|(index, (branch, _))| {
+            let (ok, head_sha) = harness::git(repo.path(), &["rev-parse", branch]);
+            assert!(ok, "cannot resolve branch {branch}: {head_sha}");
+            passerelle_git_pijul::PullRequest {
+                number: index as u64 + 1,
+                title: format!("Sibling PR {}", index + 1),
+                author: "synthetic-corpus".into(),
+                head_sha,
+                head_ref: format!("refs/remotes/pr/{}", index + 1),
+            }
+        })
+        .collect();
+
+    let work = tempfile::tempdir().expect("gateway workspace");
+    let mirror = work.path().join("mirror.git");
+    build_mirror(repo.path(), &mirror, &base_sha, &prs);
+    let base = passerelle_git_pijul::Base {
+        branch: "main".into(),
+        sha: base_sha,
+    };
+    let pijul_repo = work.path().join("pijul");
+    let scratch = work.path().join("scratch");
+    let mut ledger = passerelle_git_pijul::ledger::Ledger::default();
+
+    for pr in &prs {
+        passerelle_git_pijul::translate::translate_pr_from_mirror(
+            &mirror, &pijul_repo, &scratch, &base, pr, &mut ledger,
+        )
+        .unwrap_or_else(|error| panic!("sibling import {} failed: {error}", pr.number));
+    }
+
+    // Re-run the first PR after the second sibling has been imported. This
+    // catches loss of the common-base OID channel and ledger/checkpoint drift.
+    passerelle_git_pijul::translate::translate_pr_from_mirror(
+        &mirror, &pijul_repo, &scratch, &base, &prs[0], &mut ledger,
+    )
+    .unwrap_or_else(|error| panic!("rerun of first sibling PR failed: {error}"));
+
+    for pr in &prs {
+        for sha in git_commits_between(&mirror, &base.sha, &pr.head_sha) {
+            let entry = ledger.get(&sha);
+            assert!(
+                entry.is_some(),
+                "ledger mapping missing after sibling imports/rerun for Git commit {sha}"
+            );
+            assert_eq!(
+                entry.unwrap().pr,
+                Some(pr.number),
+                "ledger attribution changed for Git commit {sha}"
+            );
+        }
+    }
+}
+
+/// Return non-merge commit OIDs between base and head, oldest first.
+fn git_commits_between(mirror: &Path, base: &str, head: &str) -> Vec<String> {
+    let (ok, output) = harness::run(
+        Path::new("."),
+        "git",
+        &[
+            "--git-dir",
+            mirror.to_str().expect("UTF-8 mirror path"),
+            "rev-list",
+            "--reverse",
+            &format!("{base}..{head}"),
+        ],
+    );
+    assert!(ok, "cannot enumerate synthetic commit range: {output}");
+    output.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect()
+}
+
+// ---------------------------------------------------------------------------
 // 3. Propriété de bout en bout
 // ---------------------------------------------------------------------------
 
