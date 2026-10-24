@@ -290,7 +290,7 @@ pub fn translate_pr_from_mirror(
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "PR {} head {} is not a fast-forward of previously imported {}; refusing to overwrite channel pr-{}",
+                    "PR {} head {} is not a fast-forward of {}; refusing to overwrite pr-{}",
                     pr.number, pr.head_sha, previous, pr.number
                 ),
             ));
