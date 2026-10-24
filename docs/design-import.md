@@ -554,3 +554,11 @@ d'une association contradictoire où un même OID serait lié à un autre change
 La fonctionnalité reste à compiler avec `lake build Bridge`; aucune preuve
 Lean n'est considérée vérifiée avant cette compilation.
 
+### Test d'intégration ajouté — branches sœurs puis rerun
+
+Le test synthétique `sibling_branches_then_rerun_preserves_base_and_mapping` a été ajouté dans `tests/roundtrip.rs`. Il importe deux branches sœurs dans le même dépôt Pijul, relance ensuite l'import de la première et vérifie que les mappings du ledger existent encore avec la bonne attribution.
+
+Le test est `#[ignore]` par défaut car il requiert le vrai binaire Pijul. Le protocole local le déclenche explicitement avec `RUN_SIBLING_RERUN_TEST=1 bash scripts/verify-local.sh`. Le script a été adapté pour exécuter les tests ignorés correspondants, et `docs/local-verification.md` décrit maintenant ce scénario comme implémenté mais non exécuté.
+
+Ce test n'affirme pas que l'approche actuelle réussit : il peut révéler le blocage déjà anticipé sur le channel de base commun. Aucun résultat ne sera revendiqué avant son exécution avec Pijul beta.24.
+
