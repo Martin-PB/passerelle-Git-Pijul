@@ -105,3 +105,35 @@ fn fetch_prs_refuses_to_repurpose_non_git_data() {
         "must remain untouched"
     );
 }
+
+#[test]
+fn fetch_refs_accepts_hosting_agnostic_ref_mappings() {
+    let source = tempfile::tempdir().unwrap();
+    run_git(source.path(), &["init", "-b", "main"]);
+    let main_sha = commit(source.path(), "synthetic main");
+
+    let mirror = source.path().join("generic-mirror");
+    let refs = [(
+        "refs/heads/main".to_owned(),
+        "refs/remotes/base/main".to_owned(),
+    )];
+    ingest::fetch_refs(source.path().to_str().unwrap(), &refs, &mirror).unwrap();
+
+    assert_eq!(
+        run_git(&mirror, &["rev-parse", "refs/remotes/base/main"]),
+        main_sha
+    );
+}
+
+#[test]
+fn fetch_refs_rejects_non_ref_destinations() {
+    let source = tempfile::tempdir().unwrap();
+    run_git(source.path(), &["init", "-b", "main"]);
+    commit(source.path(), "synthetic main");
+
+    let mirror = source.path().join("generic-mirror");
+    let refs = [("refs/heads/main".to_owned(), "../outside".to_owned())];
+    let err = ingest::fetch_refs(source.path().to_str().unwrap(), &refs, &mirror)
+        .expect_err("destination must be a Git ref");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+}
