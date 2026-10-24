@@ -9,10 +9,9 @@
 //!    comparateur sans-perte font ce qu'ils annoncent (stable, sourd aux
 //!    métadonnées VCS, détection de perte ET d'apparition).
 //! 3. `roundtrip_property_end_to_end` — le test de bout en bout complet ;
-//!    `#[ignore]` tant que les backlogs 2.2 (traduction aller réelle) et
-//!    2.3 (export réel) ne sont pas implémentés : les fonctions translate /
-//!    export sont aujourd'hui des stubs TODO. Il se débloque sans être
-//!    réécrit : les appels correspondent déjà aux signatures réelles.
+//!    `#[ignore]` jusqu'à ce que le pipeline d'import, l'exporteur externe
+//!    et le matérialiseur de sortie soient validés sur le corpus. Les appels
+//!    historiques sont conservés comme squelette, pas comme preuve.
 
 mod harness;
 
@@ -89,7 +88,7 @@ fn snapshot_text_is_deterministic() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "débloqué par 2.2 (import réel) et 2.3 (export réel) : translate/export sont des stubs TODO"]
+#[ignore = "squelette historique : nécessite le pipeline miroir→channels et la matérialisation de la branche exportée"]
 fn roundtrip_property_end_to_end() {
     if !skip_unless(harness::have("git"), "git") || !skip_unless(harness::have("pijul"), "pijul") {
         return;
@@ -129,6 +128,7 @@ fn roundtrip_property_end_to_end() {
         // la propriété n°1 ne porte que sur la perte de texte.)
         let exported = passerelle_git_pijul::translate::export_integration(
             work.path(),
+            repo.path(),
             &mut ledger,
             passerelle_git_pijul::ExportMode::Linear,
             &base,
