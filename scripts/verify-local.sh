@@ -105,8 +105,8 @@ else
 fi
 
 # 4. Optional extra test for the multiple-sibling-branches + rerun blocker.
-# The test is intentionally not fabricated here: it must exist in the test suite
-# before this runner can claim it was exercised.
+# The test is ignored by default and must be explicitly enabled here; its
+# presence alone is not validation.
 if [[ "${RUN_SIBLING_RERUN_TEST:-0}" == "1" ]]; then
   if cargo test --test roundtrip -- --list 2>&1 | tee "$LOG_DIR/roundtrip-test-list.log" | grep -Eiq 'sibling.*rerun|rerun.*sibling'; then
     run_check sibling-branch-rerun cargo test --test roundtrip -- --ignored --nocapture sibling
