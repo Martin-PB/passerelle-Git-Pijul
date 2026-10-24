@@ -83,6 +83,102 @@ fn snapshot_text_is_deterministic() {
     assert_text_lossless(&expected, &snap, "test identité");
 }
 
+fn build_mirror(
+    repo: &Path,
+    mirror: &Path,
+    base_sha: &str,
+    prs: &[passerelle_git_pijul::PullRequest],
+) {
+    let repo_path = repo.to_str().expect("UTF-8 repo path");
+    let mirror_path = mirror.to_str().expect("UTF-8 mirror path");
+    let (ok, output) = harness::run(repo, "git", &["clone", "--bare", repo_path, mirror_path]);
+    assert!(ok, "git clone --bare failed: {output}");
+
+    let mirror_arg = mirror.to_str().expect("UTF-8 mirror path");
+    let (ok, output) = harness::run(
+        Path::new("."),
+        "git",
+        &["--git-dir", mirror_arg, "update-ref", "refs/remotes/base/main", base_sha],
+    );
+    assert!(ok, "pin base ref failed: {output}");
+    for pr in prs {
+        let (ok, output) = harness::run(
+            Path::new("."),
+            "git",
+            &[
+                "--git-dir",
+                mirror_arg,
+                "update-ref",
+                &format!("refs/remotes/pr/{}", pr.number),
+                &pr.head_sha,
+            ],
+        );
+        assert!(ok, "pin PR {} ref failed: {output}", pr.number);
+    }
+}
+
+#[test]
+fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
+    if !skip_unless(harness::have("git"), "git")
+        || !skip_unless(harness::have("pijul"), "pijul")
+    {
+        return;
+    }
+
+    for scenario in corpus() {
+        let repo = tempfile::tempdir().expect("synthetic Git repo");
+        harness::build_git_repo(repo.path(), &scenario);
+        let (_, base_sha) = harness::git(repo.path(), &["rev-parse", "main"]);
+        let prs: Vec<_> = scenario
+            .branches
+            .iter()
+            .enumerate()
+            .map(|(index, (branch, _))| {
+                let (ok, head_sha) = harness::git(repo.path(), &["rev-parse", branch]);
+                assert!(ok, "cannot resolve branch {branch}: {head_sha}");
+                passerelle_git_pijul::PullRequest {
+                    number: index as u64 + 1,
+                    title: format!("PR {}", index + 1),
+                    author: "synthetic-corpus".into(),
+                    head_sha,
+                    head_ref: format!("refs/remotes/pr/{}", index + 1),
+                }
+            })
+            .collect();
+        let work = tempfile::tempdir().expect("gateway workspace");
+        let mirror = work.path().join("mirror.git");
+        build_mirror(repo.path(), &mirror, &base_sha, &prs);
+        let base = passerelle_git_pijul::Base {
+            branch: "main".into(),
+            sha: base_sha,
+        };
+        let pijul_repo = work.path().join("pijul");
+        let scratch = work.path().join("scratch");
+        let mut ledger = passerelle_git_pijul::ledger::Ledger::default();
+        for pr in &prs {
+            passerelle_git_pijul::translate::translate_pr_from_mirror(
+                &mirror,
+                &pijul_repo,
+                &scratch,
+                &base,
+                pr,
+                &mut ledger,
+            )
+            .unwrap_or_else(|error| panic!("import {} failed in {}: {error}", pr.number, scenario.name));
+        }
+        let triage =
+            passerelle_git_pijul::triage::triage_integration_channel(&pijul_repo)
+                .unwrap_or_else(|error| panic!("triage failed in {}: {error}", scenario.name));
+        assert!(
+            triage
+                .iter()
+                .any(|item| matches!(item, passerelle_git_pijul::triage::Triage::Operator { .. })),
+            "scenario {} must expose at least one unresolved Pijul conflict",
+            scenario.name
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 3. Propriété de bout en bout — débloquée par les backlogs 2.2 et 2.3
 // ---------------------------------------------------------------------------
