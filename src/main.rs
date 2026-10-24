@@ -191,6 +191,7 @@ fn merge_prs(args: &[String]) {
         });
     let pijul_repo = workdir.join("pijul");
     let scratch = workdir.join("scratch");
+    let mut imported_prs = Vec::new();
     for number in &prs {
         let head_ref = format!("refs/remotes/pr/{number}");
         let head_sha = git_rev_parse(&mirror, &head_ref).unwrap_or_else(|error| {
@@ -216,12 +217,30 @@ fn merge_prs(args: &[String]) {
             std::process::exit(1);
         }
         println!("imported PR {number} into Pijul channel pr-{number}");
+        imported_prs.push(pr);
     }
 
     println!("Pijul integration channel prepared.");
-    println!(
-        "triage/operator resolution and Git export remain unimplemented; no Git branch was written."
-    );
+    match export_mode {
+        ExportMode::Linear => match translate::export_integration(
+            &workdir,
+            &mirror,
+            &mut l,
+            export_mode,
+            &base_info,
+            &imported_prs,
+        ) {
+            Ok(reference) => println!("validated local Git export: {reference}"),
+            Err(error) => {
+                eprintln!("linear export failed: {error}");
+                std::process::exit(1);
+            }
+        },
+        ExportMode::MergeTopology => println!(
+            "merge-topology export remains unimplemented; no Git branch was written."
+        ),
+    }
+    println!("triage and operator resolution remain unimplemented.");
 }
 
 fn operator_cmd(args: &[String]) {
