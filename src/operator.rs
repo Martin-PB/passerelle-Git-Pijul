@@ -79,10 +79,12 @@ pub fn apply_resolution(
     change_hash: &str,
     note: Option<&str>,
 ) -> std::io::Result<()> {
-    if change_hash.trim().is_empty() {
+    if change_hash.trim().is_empty()
+        || !change_hash.chars().all(|character| character.is_ascii_alphanumeric())
+    {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "resolution change hash must not be empty",
+            "resolution change hash must be a non-empty alphanumeric hash or prefix",
         ));
     }
     std::fs::create_dir_all(workdir)?;
