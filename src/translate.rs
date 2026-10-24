@@ -6,10 +6,10 @@
 //! It deliberately fails closed if the CLI's observed result differs from the
 //! design assumption of exactly one change per non-root Git commit.
 
-use crate::ledger::{Direction, Entry, Ledger};
+use crate::ledger::Ledger;
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -83,7 +83,17 @@ pub fn change_for_git_commit(
     }
     let after = changes_on_channel(pijul_repo, git_sha)?;
     let before = changes_on_channel(pijul_repo, parent_sha)?;
-    let introduced: Vec<_> = after.difference(&before).cloned().collect();
+    unique_new_change(&before, &after, git_sha)
+}
+
+/// Select the one new change between two imported commit states. Kept pure
+/// so the cardinality invariant can be tested without invoking external CLIs.
+pub fn unique_new_change(
+    before: &BTreeSet<String>,
+    after: &BTreeSet<String>,
+    git_sha: &str,
+) -> std::io::Result<String> {
+    let introduced: Vec<_> = after.difference(before).cloned().collect();
     if introduced.len() != 1 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
