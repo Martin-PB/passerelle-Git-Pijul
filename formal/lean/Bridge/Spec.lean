@@ -130,6 +130,36 @@ def InRange (h : GitHistory) (base head commit : Oid) : Prop :=
 
 end GitHistory
 
+/-! ## 1b. Local-to-global tree simulation obligation -/
+
+/-- A tree-level refinement witness pairs the Git tree at each commit with
+    the materialized tree represented by the translated Pijul state.
+
+    `edgePreserves` is a proof obligation for the concrete translator: it must
+    establish that a valid translation step preserves the representation
+    relation. It is NOT an axiom about the upstream Pijul CLI. -/
+structure TreeRefinement (h : GitHistory) where
+  gitTree : Oid → GitTree
+  pijulTree : Oid → GitTree
+  edgePreserves : ∀ parent child,
+    GitHistory.ParentEdge h parent child →
+    TreeEq (gitTree parent) (pijulTree parent) →
+    TreeEq (gitTree child) (pijulTree child)
+
+/-- If the base commit is represented correctly and every translated parent
+    edge preserves tree representation, every descendant on that history path
+    is represented correctly. This composes local simulation obligations into
+    a path-level theorem; it does not itself establish `edgePreserves`. -/
+theorem tree_refinement_along_ancestry (h : GitHistory)
+    (r : TreeRefinement h) {base head : Oid}
+    (reach : GitHistory.Ancestor h base head)
+    (baseCorrect : TreeEq (r.gitTree base) (r.pijulTree base)) :
+    TreeEq (r.gitTree head) (r.pijulTree head) := by
+  induction reach with
+  | refl _ => exact baseCorrect
+  | @step ancestor parent child previous edge ih =>
+      exact r.edgePreserves parent child edge ih
+
 /-! ## 2. Abstract change model and trust boundary -/
 
 abbrev ChangeId := Nat
