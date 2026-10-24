@@ -88,6 +88,18 @@ que les scénarios annoncés conflictuels le sont réellement sous Git et que
 l'inventaire de texte est sans perte ; le test de bout en bout reste bloqué
 sur l'implémentation des backlogs 2.2 et 2.3.
 
+## Vérification locale Linux
+
+Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md).
+
+Depuis la racine du dépôt :
+
+```sh
+bash scripts/verify-local.sh
+```
+
+Le script n'installe pas les outils et ne déclenche aucune GitHub Action. Une exécution incomplète retourne un code non nul. Le build Lean valide uniquement les théorèmes du modèle abstrait ; la preuve de raffinement vers le moteur Pijul réel et le round-trip de bout en bout restent des objectifs non démontrés.
+
 ## Usage
 
 L’ingest générique prend un remote et des mappings source=destination, sans dépendre
