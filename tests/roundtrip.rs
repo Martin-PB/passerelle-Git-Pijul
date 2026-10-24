@@ -189,6 +189,7 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 /// est explicitement lancé pour valider le protocole, l'absence de Git/Pijul
 /// doit être visible comme un échec, pas comme un faux PASS.
 #[test]
+#[ignore = "test d'intégration bloquant, à lancer explicitement avec RUN_SIBLING_RERUN_TEST=1"]
 fn sibling_branches_then_rerun_preserves_base_and_mapping() {
     assert!(harness::have("git"), "pré-requis manquant : git");
     assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
