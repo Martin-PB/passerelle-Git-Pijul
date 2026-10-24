@@ -68,7 +68,7 @@ theorem ancestry_transitive (h : GitHistory) {a b c : Oid}
     (hab : Ancestor h a b) (hbc : Ancestor h b c) : Ancestor h a c := by
   induction hbc with
   | refl _ => exact hab
-  | @step _ parent child hbp edge ih =>
+  | @step _ _ parent child hbp edge ih =>
       exact Ancestor.step ih edge
 
 /-- A commit is in the base-to-head range iff base is its ancestor and it
@@ -97,12 +97,12 @@ structure Patch where
 structure PatchModel where
   State : Type
   stateEq : State → State → Prop
-  Patch : Type
-  patchId : Patch → ChangeId
-  dependencies : Patch → List ChangeId
-  Valid : State → Patch → Prop
-  Apply : State → Patch → Option State
-  Conflict : State → Patch → Patch → Prop
+  PatchType : Type
+  patchId : PatchType → ChangeId
+  dependencies : PatchType → List ChangeId
+  Valid : State → PatchType → Prop
+  Apply : State → PatchType → Option State
+  Conflict : State → PatchType → PatchType → Prop
 
 /-! ## 3. Ledger contract -/
 
