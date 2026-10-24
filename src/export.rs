@@ -147,6 +147,29 @@ pub fn export_linear_with_pijul_export(
         ));
     }
 
+    let status = Command::new("pijul")
+        .arg("status")
+        .current_dir(&pijul_repo)
+        .output()?;
+    if !status.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "cannot inspect Pijul integration status: {}",
+                String::from_utf8_lossy(&status.stderr).trim()
+            ),
+        ));
+    }
+    let status_text = String::from_utf8_lossy(&status.stdout);
+    if status_text.contains("Unresolved conflicts:")
+        || status_text.contains("Unrecorded changes")
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "integration has unresolved conflicts or unrecorded changes; refusing Git export",
+        ));
+    }
+
     let output_ref = "refs/heads/gateway/integration";
     let expected_tree = working_tree_id(&git_mirror, &pijul_repo, &scratch)?;
     let staging_branch = format!("gateway/staging-{}", std::process::id());
