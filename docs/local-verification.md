@@ -86,10 +86,10 @@ Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est mai
 Le test utilise uniquement des dépôts synthétiques et couvre :
 1. une base commune et deux branches sœurs distinctes ;
 2. import de la première branche ;
-3. import de la seconde branche dans le même environnement Pijul ;
-4. import successif des deux branches sœurs dans le même dépôt Pijul ;
-5. rerun de la première branche après l'import de la seconde ;
-6. présence et attribution des mappings OID→change après les opérations.
+3. import de la seconde branche dans le même dépôt Pijul ;
+4. rerun de la première branche après l'import de la seconde ;
+5. présence et attribution des mappings OID→change après les opérations ;
+6. vérification explicite que le binaire utilisé est Pijul 1.0.0-beta.24.
 
 Comparer aussi les arbres de fichiers ne suffit pas à établir l'identité des changes ou la préservation des conflits.
 
