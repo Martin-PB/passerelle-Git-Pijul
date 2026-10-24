@@ -339,7 +339,9 @@ fn operator_cmd(args: &[String]) {
                 std::process::exit(2);
             };
             match operator::apply_resolution(&workdir, &change_hash, note.as_deref()) {
-                Ok(()) => println!("applied resolution change {change_hash} to integration; audit appended"),
+                Ok(()) => println!(
+                    "applied resolution change {change_hash} to integration; audit appended"
+                ),
                 Err(error) => {
                     eprintln!("resolution application failed: {error}");
                     std::process::exit(1);
@@ -347,7 +349,9 @@ fn operator_cmd(args: &[String]) {
             }
         }
         _ => {
-            eprintln!("usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]");
+            eprintln!(
+                "usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]"
+            );
             std::process::exit(2);
         }
     }
