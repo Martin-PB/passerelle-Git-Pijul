@@ -10,7 +10,7 @@ use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
@@ -65,6 +65,21 @@ fn pijul(repo: &Path, args: &[&str]) -> std::io::Result<String> {
         &args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
         Some(repo),
     )
+}
+
+fn git_status(repo: &Path, args: &[&str]) -> std::io::Result<ExitStatus> {
+    let is_bare = repo.join("HEAD").is_file()
+        && repo.join("objects").is_dir()
+        && repo.join("refs").is_dir()
+        && !repo.join(".git").exists();
+    let mut command = Command::new("git");
+    if is_bare {
+        command.arg("--git-dir").arg(repo.canonicalize()?);
+    } else {
+        command.current_dir(repo);
+    }
+    command.args(args);
+    command.status()
 }
 
 /// Return the set of change hashes visible on a Pijul channel.
@@ -273,25 +288,10 @@ pub fn translate_pr_from_mirror(
         ));
     }
 
-    let base_is_ancestor = Command::new("git")
-        .args({
-            let mut args = Vec::new();
-            if git_mirror.join("HEAD").is_file()
-                && git_mirror.join("objects").is_dir()
-                && git_mirror.join("refs").is_dir()
-                && !git_mirror.join(".git").exists()
-            {
-                args.push("--git-dir".to_owned());
-                args.push(git_mirror.canonicalize()?.display().to_string());
-            }
-            args.extend(
-                ["merge-base", "--is-ancestor", &base.sha, &pr.head_sha]
-                    .iter()
-                    .map(|s| (*s).to_owned()),
-            );
-            args
-        })
-        .status()?;
+    let base_is_ancestor = git_status(
+        git_mirror,
+        &["merge-base", "--is-ancestor", &base.sha, &pr.head_sha],
+    )?;
     if !base_is_ancestor.success() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -312,25 +312,10 @@ pub fn translate_pr_from_mirror(
         if previous == pr.head_sha {
             continue;
         }
-        let ancestor = Command::new("git")
-            .args({
-                let mut args = Vec::new();
-                if git_mirror.join("HEAD").is_file()
-                    && git_mirror.join("objects").is_dir()
-                    && git_mirror.join("refs").is_dir()
-                    && !git_mirror.join(".git").exists()
-                {
-                    args.push("--git-dir".to_owned());
-                    args.push(git_mirror.canonicalize()?.display().to_string());
-                }
-                args.extend(
-                    ["merge-base", "--is-ancestor", &previous, &pr.head_sha]
-                        .iter()
-                        .map(|s| (*s).to_owned()),
-                );
-                args
-            })
-            .status()?;
+        let ancestor = git_status(
+            git_mirror,
+            &["merge-base", "--is-ancestor", &previous, &pr.head_sha],
+        )?;
         if !ancestor.success() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
