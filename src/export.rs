@@ -7,7 +7,7 @@
 //! Merge-topology export remains unsupported.
 
 use crate::ExportMode;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// Human-readable plan of what will be pushed, per PR, for a given export
@@ -170,7 +170,7 @@ pub fn export_linear_with_pijul_export(
             &staging_branch,
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::inherit())
         .spawn()?;
     let mut exporter = exporter;
     let stream = exporter.stdout.take().ok_or_else(|| {
@@ -224,7 +224,12 @@ pub fn export_linear_with_pijul_export(
         let existing_sha = git(&git_mirror, &["rev-parse", &format!("{output_ref}^{{commit}}")], None, None)?;
         let existing_tree = git(&git_mirror, &["rev-parse", &format!("{existing_sha}^{{tree}}")], None, None)?;
         delete_ref(&git_mirror, &staging_ref);
-        if existing_tree == expected_tree {
+        let existing_is_descendant = Command::new("git")
+            .args(["--git-dir"])
+            .arg(&git_mirror)
+            .args(["merge-base", "--is-ancestor", base_sha, &existing_sha])
+            .status()?;
+        if existing_tree == expected_tree && existing_is_descendant.success() {
             return Ok(output_ref.to_owned());
         }
         return Err(std::io::Error::new(
