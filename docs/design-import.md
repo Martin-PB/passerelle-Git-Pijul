@@ -120,6 +120,19 @@ merge-commit par PR (mode `merge-topology`, absent de `pijul-export` qui
 est purement linéaire), et la frontière opérateur. Conclusion : la passerelle
 est la couche orchestration + le chaînon manquant, pas une réécriture.
 
+### Décision de périmètre (opérateur, 24/10/2026)
+
+- **D9** : la passerelle est **bidirectionnelle Pijul ↔ Git et agnostique de
+  l'hébergement** (ni Nest, ni GitHub ciblés par le cœur). Le cœur ne
+  connaît que refs git et changes pijul ; la sémantique d'hébergement
+  (PRs, merge queues, événements `synchronize`) vivra dans des greffons
+  frontaux qui la traduisent en refs. Conséquences concrètes : le mode
+  `merge-topology` de 2.3 doit rester exprimable **sans** GitHub (un merge
+  commit par branche entrante, génériquement) ; l'ingest du 2.2 prend des
+  refs en entrée, pas des numéros de PR ; `pr-<n>` est une convention de
+  nommage des channels, pas un type du cœur. Le README est aligné par la
+  PR dédiée (branche mp-bidir-agnostic).
+
 ### Décisions mises à jour
 
 - **D6** : avant d'implémenter 2.3 mode linear, auditer `pijul-export`
