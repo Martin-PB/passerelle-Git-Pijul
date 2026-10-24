@@ -48,13 +48,12 @@ exactement par commit — aucune heuristique d'ordre à inventer.
    clone de travail par PR, ou `git checkout --detach <head_sha>`). Un clone
    de travail distinct **par PR** (pas un seul miroir partagé) évite toute
    contention sur HEAD et permet le parallélisme.
-3. **Import (à refondre avant validation)** : la source amont actuelle
-   n'accepte qu'un chemin, qui doit être à la fois le dépôt Git et la racine
-   du dépôt Pijul. La passerelle doit donc conserver un clone de travail
-   persistant contenant `.git` et `.pijul`, y déplacer HEAD vers chaque SHA
-   puis appeler `pijul git <clone>`. Cette opération doit être sérialisée
-   tant que le même état Pijul/cache est partagé ; le clone temporaire par SHA
-   avec un second chemin n'est pas un contrat confirmé.
+3. **Import** : `pijul git <clone-SHA> <workdir-pijul>` — signature confirmée
+   dans la source exacte de beta.24. Chaque SHA est présenté via un clone Git
+   temporaire détaché, tandis que le dépôt Pijul/cache reste partagé dans
+   `workdir-pijul`. Les imports doivent être sérialisés tant qu'ils modifient
+   ce dépôt/cache partagé ; l'idempotence doit être démontrée par le test
+   d'intégration, et non déduite du seul code source.
 4. **Base** : la branche cible (`main` Git) est importée d'abord (même
    mécanique) : le channel de son OID de tête sert d'ancêtre commun.
 5. **Mapping** : pour chaque commit de `git rev-list <base>..<head>` :
@@ -188,11 +187,10 @@ La branche `agent/p0-synthetic-roundtrip` contient maintenant les primitives
 Rust suivantes dans `src/translate.rs` :
 
 - `import_git_commit(mirror, pijul_repo, sha, scratch)` vérifie le SHA,
-  crée un clone temporaire par import et appelle `pijul git` avec deux
-  chemins. **Cette implémentation est désormais considérée bloquée** : la
-  source amont actuelle expose un seul chemin, qui coïncide avec la racine
-  Git/Pijul. La refonte vers un clone persistant unique et sérialisé est
-  nécessaire avant de valider le mapping des commits.
+  crée un clone temporaire par import et appelle `pijul git <git_path>
+  <pijul_path>`. Cette signature est confirmée dans le source de beta.24.
+  La correction restante est de sérialiser l'accès au dépôt/cache Pijul
+  partagé et de vérifier l'import incrémental et le mapping à l'exécution.
 - `changes_on_channel` lit les hashes via `pijul log --hash-only`.
 - `change_for_git_commit` calcule la différence entre l'ensemble de changes
   du channel du commit et celui de son parent.
