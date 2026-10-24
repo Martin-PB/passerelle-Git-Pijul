@@ -263,6 +263,39 @@ theorem Ledger.recordIfAbsent_idempotent (ledger : Ledger)
   · simp [Ledger.recordIfAbsent, h]
   · simp [Ledger.recordIfAbsent, h]
 
+
+/-- A checked ledger write rejects an OID that is already mapped to a
+    different change. Exact duplicate writes remain accepted and idempotent. -/
+def Ledger.recordChecked (ledger : Ledger) (oid : Oid) (change : ChangeId) :
+    Option Ledger :=
+  if h : ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change then
+    none
+  else
+    some (ledger.recordIfAbsent oid change)
+
+/-- Conflicting OID→change associations fail closed instead of adding a
+    second, contradictory mapping. -/
+theorem Ledger.recordChecked_rejects_conflict (ledger : Ledger)
+    (oid existing change : ChangeId)
+    (hEntry : (oid, existing) ∈ ledger.entries)
+    (hDifferent : existing ≠ change) :
+    ledger.recordChecked oid change = none := by
+  have hConflict :
+      ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change :=
+    ⟨existing, hEntry, hDifferent⟩
+  simp [Ledger.recordChecked, hConflict]
+
+/-- If no conflicting association exists, the checked write returns the
+    duplicate-suppressing update. This does not claim that the external
+    importer generated the correct change in the first place. -/
+theorem Ledger.recordChecked_accepts_consistent (ledger : Ledger)
+    (oid : Oid) (change : ChangeId)
+    (hNoConflict :
+      ¬ ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change) :
+    ledger.recordChecked oid change =
+      some (ledger.recordIfAbsent oid change) := by
+  simp [Ledger.recordChecked, hNoConflict]
+
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
   gitOid : Oid
