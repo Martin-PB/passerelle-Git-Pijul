@@ -268,6 +268,33 @@ pas le channel ne vaut jamais `Clean`. Les chemins conflictuels sont rapportés
 implémenter. L'export refuse les conflits et changements non enregistrés.
 
 
+### Limite beta.24 découverte : channels OID temporaires
+
+La source beta.24 ne conserve pas tous les channels nommés par OID pendant
+l'import. `Dag::collect_dead_parents` appelle `drop_channel` quand un parent
+n'a plus de descendants à traiter (source `src/commands/git.rs`, autour des
+lignes 1245–1264 et 1406–1411). Le cache OID→Merkle, lui, est persistant.
+
+Conséquences :
+
+- Le mapping en ligne (snapshot du parent, import d'un enfant, lecture immédiate
+  du channel enfant) évite de demander après coup des channels déjà supprimés.
+- Cela ne règle **pas** le cas de plusieurs PR partageant la même base : après
+  l'import d'une première branche, le channel OID de la base peut avoir été
+  supprimé. Un nouvel appel `pijul git <autre-clone> <même-dépôt-pijul>` peut
+  alors retrouver l'OID dans le cache sans retrouver le channel attendu.
+- La réexécution d'un import à partir de la base originale pose le même risque.
+  Le ledger et les channels nommés `pr-N`/ `integration` ne suffisent pas à
+  recréer les channels OID supprimés.
+
+**Décision de sûreté :** ne pas annoncer le pipeline multi-PR comme fonctionnel.
+Le prochain spike doit prouver une stratégie de partage de base qui marche avec
+la suppression des channels upstream : soit imports isolés puis transfert
+des changes vers un dépôt d'intégration, soit un adaptateur sur l'API Rust de
+Pijul qui conserve les états nécessaires, soit une modification upstream
+explicitement assumée. Le choix doit être validé par un test synthétique
+beta.24 avec deux branches sœurs et un rerun, pas seulement par les tests purs.
+
 ### Vérification exacte de la signature beta.24 de `pijul git`
 
 La source du paquet exact `pijul 1.0.0-beta.24`, publiée sur docs.rs,
