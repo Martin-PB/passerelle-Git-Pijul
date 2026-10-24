@@ -161,6 +161,17 @@ pub fn export_linear_with_pijul_export(
         ));
     }
     let status_text = String::from_utf8_lossy(&status.stdout);
+    let identifies_integration = status_text.lines().any(|line| {
+        let line = line.trim();
+        (line.starts_with("On branch ") || line.starts_with("On channel "))
+            && line.contains("integration")
+    });
+    if !identifies_integration {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "pijul status did not identify integration; refusing export",
+        ));
+    }
     if status_text.contains("Unresolved conflicts:")
         || status_text.contains("Unrecorded changes")
     {
