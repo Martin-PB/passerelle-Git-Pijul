@@ -270,56 +270,85 @@ fn merge_prs(args: &[String]) {
 }
 
 fn operator_cmd(args: &[String]) {
-    let mut queue = operator::OperatorQueue::default();
-    match args.first().map(String::as_str) {
-        Some("queue") => {
-            for pending in &queue.pending {
-                println!("conflict: {}", pending.path);
+    let Some(action) = args.first().map(String::as_str) else {
+        eprintln!("usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]");
+        std::process::exit(2);
+    };
+    let mut workdir = PathBuf::from(".gateway-work");
+    let mut change_hash = None;
+    let mut note = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--workdir" => {
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("--workdir needs a value");
+                    std::process::exit(2);
+                };
+                workdir = PathBuf::from(value);
+                i += 2;
             }
-            println!("(operator console: p2 milestone)");
-        }
-        Some("submit") => {
-            let mut hash = String::new();
-            let mut note = None;
-            let mut i = 1;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--change" => {
-                        let Some(value) = args.get(i + 1) else {
-                            eprintln!("--change needs a value");
-                            std::process::exit(2);
-                        };
-                        hash = value.clone();
-                        i += 2;
-                    }
-                    "--note" => {
-                        let Some(value) = args.get(i + 1) else {
-                            eprintln!("--note needs a value");
-                            std::process::exit(2);
-                        };
-                        note = Some(value.clone());
-                        i += 2;
-                    }
-                    other => {
-                        eprintln!("unknown operator submit argument: {other}");
-                        std::process::exit(2);
-                    }
-                }
+            "--change" => {
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("--change needs a value");
+                    std::process::exit(2);
+                };
+                change_hash = Some(value.clone());
+                i += 2;
             }
-            if hash.trim().is_empty() {
-                eprintln!("operator submit requires --change <hash>");
+            "--note" => {
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("--note needs a value");
+                    std::process::exit(2);
+                };
+                note = Some(value.clone());
+                i += 2;
+            }
+            other => {
+                eprintln!("unknown operator argument: {other}");
                 std::process::exit(2);
             }
-            queue.submit(operator::ResolutionChange {
-                change_hash: hash,
-                note,
-            });
-            println!("resolution queued in memory only (persistent queue is not implemented)");
+        }
+    }
+
+    match action {
+        "queue" => match triage::triage_integration_channel(&workdir.join("pijul")) {
+            Ok(results) => {
+                let mut pending = 0;
+                for result in results {
+                    if let triage::Triage::Operator { report } = result {
+                        pending += 1;
+                        println!("conflict: {}", report.path);
+                        println!("{}", report.conflict_state);
+                    }
+                }
+                if pending == 0 {
+                    println!("no unresolved conflicts reported on integration");
+                } else {
+                    println!("{pending} conflict(s) need operator resolution");
+                }
+            }
+            Err(error) => {
+                eprintln!("cannot inspect operator queue: {error}");
+                std::process::exit(1);
+            }
+        },
+        "submit" => {
+            let Some(change_hash) = change_hash else {
+                eprintln!("operator submit requires --change <hash>");
+                std::process::exit(2);
+            };
+            match operator::apply_resolution(&workdir, &change_hash, note.as_deref()) {
+                Ok(()) => println!("applied resolution change {change_hash} to integration; audit appended"),
+                Err(error) => {
+                    eprintln!("resolution application failed: {error}");
+                    std::process::exit(1);
+                }
+            }
         }
         _ => {
-            eprintln!("usage: passerelle operator <queue|submit> [...]");
+            eprintln!("usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]");
             std::process::exit(2);
         }
     }
-    let _ = (&mut queue, &translate::translate_pr, &triage::triage_integration_channel);
 }
