@@ -201,3 +201,26 @@ Rust suivantes dans `src/translate.rs` :
 incomplet. Les tests Rust restent **NOT RUN** (Cargo indisponible dans
 l'environnement de travail) ; les commandes Pijul doivent être validées par
 exécution sur le binaire cible avant d'activer le round-trip P0.
+
+
+## 9. Audit initial de `pijul-export` (24/10/2026)
+
+Le dépôt officiel du projet est visible sur le Nest :
+`https://nest.pijul.com/andybalholm/pijul-export`. Son README décrit un
+exporteur `git fast-export` pour un historique **linéaire d'un channel**,
+consommable via `git fast-import`, avec options `--channel`, `--branch` et
+fichiers de marks pour suivre la correspondance Pijul/Git. C'est un candidat
+technique plausible pour le mode `linear`, pas pour la topologie de merge
+par PR sans traitement supplémentaire.
+
+**Blocage licence :** le fichier `COPYING` existe, mais son contenu visible
+est vide (aucune licence explicite vérifiable). La passerelle ne doit donc
+pas incorporer, copier ou redistribuer ce code tant que son statut de licence
+n'est pas clarifié. Le README ne prouve pas non plus la compatibilité avec
+la version exacte de Pijul visée ici. Décision provisoire : garder
+`pijul-export` comme outil externe facultatif à évaluer, ne pas en faire une
+dépendance de compilation et ne pas prétendre que l'export 2.3 est résolu.
+
+Références consultées :
+- README et description de l'interface : https://nest.pijul.com/andybalholm/pijul-export
+- Fichier COPYING : https://nest.pijul.com/andybalholm/pijul-export:main/tree/IYGPU3IZMM2BI.LMAAA
