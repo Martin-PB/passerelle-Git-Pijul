@@ -470,3 +470,20 @@ Réimplémenter à la main le format interne des changes à partir de diffs Git 
 6. Garder les tests comme contre-exemples et vérifications d'intégration, jamais comme substituts aux preuves.
 
 **Statut : proposition d'architecture formelle ; aucune preuve n'a encore été écrite ou vérifiée.** Le blocage multi-branches ne doit pas être déclaré résolu tant que le modèle, les obligations de preuve et la relation à l'implémentation ne sont pas établis.
+
+
+### Première spécification Lean ajoutée (24/10/2026)
+
+Fichier : `formal/lean/Bridge/Spec.lean`.
+
+Cette première tranche formalise :
+- un modèle de commit Git et d'arbre, avec parents explicites ;
+- une histoire dont les parents existent et ont un rang strictement inférieur, ce qui exclut les cycles ;
+- la relation d'ascendance et sa transitivité ;
+- des identifiants de changes distincts des OID Git ;
+- un invariant de fonctionnalité du ledger (un OID ne peut pas pointer vers deux changes distincts) ;
+- le contrat fail-closed d'un enregistrement importé (un état « imported » doit avoir un mapping).
+
+La sémantique des changes Pijul n'est volontairement pas déclarée prouvée : elle est identifiée comme une frontière à formaliser. Les théorèmes de fidélité, préservation des conflits, dépendances et idempotence sont listés comme obligations, et non introduits comme axiomes. La prochaine tranche doit définir une relation de raffinement explicite entre historique Git et modèle de patchs Pijul.
+
+**Validation :** Lean/Lake ne sont pas installés dans l'environnement courant. Le fichier n'a donc pas été compilé ni vérifié par Lean ; aucun statut de preuve n'est revendiqué. Il faudra ajouter une configuration Lake reproductible, compiler le modèle, puis remplacer les commentaires d'obligations par des définitions et théorèmes vérifiés.
