@@ -1,8 +1,9 @@
 //! CLI entry point.
 //!
 //! The generic `ingest` command is the hosting-agnostic foundation. The
-//! higher-level merge pipeline remains incomplete until the Pijul translation
-//! and Git export stages are implemented.
+//! import pipeline and guarded linear export are experimental and unvalidated;
+//! conflict attribution, persistent operator queue and merge-topology export
+//! remain incomplete.
 //!
 //!   passerelle ingest --remote ../origin --workdir .gateway-mirror \
 //!     --ref refs/heads/main=refs/remotes/base/main \
