@@ -174,6 +174,7 @@ pub fn export_linear_with_pijul_export(
     }
     if status_text.contains("Unresolved conflicts:")
         || status_text.contains("Unrecorded changes")
+        || status_text.contains("Untracked files")
     {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
