@@ -219,7 +219,9 @@ fn merge_prs(args: &[String]) {
     }
 
     println!("Pijul integration channel prepared.");
-    println!("triage/operator resolution and Git export remain unimplemented; no Git branch was written.");
+    println!(
+        "triage/operator resolution and Git export remain unimplemented; no Git branch was written."
+    );
 }
 
 fn operator_cmd(args: &[String]) {
