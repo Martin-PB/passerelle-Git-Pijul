@@ -31,6 +31,20 @@ pub enum Rule {
 /// reports the file contents and leaves PR attribution empty rather than
 /// guessing which incoming branch caused each conflict.
 pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>> {
+    let switch = Command::new("pijul")
+        .args(["channel", "switch", "integration"])
+        .current_dir(workdir)
+        .output()?;
+    if !switch.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "cannot switch to integration before triage: {}",
+                String::from_utf8_lossy(&switch.stderr).trim()
+            ),
+        ));
+    }
+
     let output = Command::new("pijul")
         .arg("status")
         .current_dir(workdir)
@@ -46,6 +60,18 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
     }
 
     let status = String::from_utf8_lossy(&output.stdout);
+    let identifies_integration = status.lines().any(|line| {
+        let line = line.trim();
+        (line.starts_with("On branch ") || line.starts_with("On channel "))
+            && line.contains("integration")
+    });
+    if !identifies_integration {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "pijul status output did not identify the integration channel; refusing to assume it is clean",
+        ));
+    }
+
     let mut in_conflicts = false;
     let mut paths = Vec::new();
     for line in status.lines() {
