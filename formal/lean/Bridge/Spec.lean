@@ -288,12 +288,11 @@ theorem singleton_delta_unique (obs : MappingObservation)
     (hnew : candidate ∉ obs.before) : candidate = obs.change :=
   hdelta.2.2 candidate hafter hnew
 
-/-- Two observations of the same Git OID cannot report different changes if
-    both satisfy the singleton-delta contract and refer to the same canonical
-    before/after set difference. -/
-theorem singleton_delta_same_mapping
+/-- Two observations with the same canonical before/after set difference
+    cannot report different changes if both satisfy the singleton-delta
+    contract. The OID is not needed for this purely set-theoretic lemma. -/
+theorem singleton_delta_same_difference
     (obs₁ obs₂ : MappingObservation)
-    (hOid : obs₁.gitOid = obs₂.gitOid)
     (hBefore : obs₁.before = obs₂.before)
     (hAfter : obs₁.after = obs₂.after)
     (h₁ : IsSingletonDelta obs₁) (h₂ : IsSingletonDelta obs₂) :
