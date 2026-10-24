@@ -419,3 +419,66 @@ fn now_timestamp() -> String {
         .map(|duration| format!("unix:{}", duration.as_secs()))
         .unwrap_or_else(|_| "unix:0".into())
 }
+
+
+#[cfg(test)]
+mod bare_mirror_tests {
+    use super::{git, git_status};
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git(cwd: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git must be installed for bare-mirror tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn bare_mirror_supports_rev_list_and_ancestry_checks() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let work = root.path().join("work");
+        let mirror = root.path().join("mirror.git");
+        std::fs::create_dir_all(&work).expect("create worktree");
+        run_git(root.path(), &["init", "--bare", mirror.to_str().expect("UTF-8 mirror")]);
+        run_git(&work, &["init"]);
+        run_git(&work, &["config", "user.name", "Synthetic Test"]);
+        run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        run_git(&work, &["add", "file.txt"]);
+        run_git(&work, &["commit", "-m", "base"]);
+        let sha = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(
+            &work,
+            &[
+                "push",
+                mirror.to_str().expect("UTF-8 mirror"),
+                "HEAD:refs/heads/main",
+            ],
+        );
+
+        assert_eq!(
+            git(&mirror, &["rev-parse", "refs/heads/main^{commit}"])
+                .expect("rev-parse in bare mirror"),
+            sha
+        );
+        assert_eq!(
+            git(&mirror, &["rev-list", "--reverse", &format!("{sha}^..{sha}")])
+                .expect("rev-list in bare mirror"),
+            sha
+        );
+        assert!(
+            git_status(&mirror, &["merge-base", "--is-ancestor", &sha, &sha])
+                .expect("ancestry check in bare mirror")
+                .success()
+        );
+    }
+}
