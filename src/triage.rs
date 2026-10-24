@@ -9,7 +9,7 @@ use crate::operator::ConflictReport;
 use std::path::{Component, Path};
 use std::process::Command;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Triage {
     /// No unresolved conflicts were reported by Pijul.
     Clean,
