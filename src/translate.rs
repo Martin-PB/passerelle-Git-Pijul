@@ -322,7 +322,7 @@ pub fn translate_pr_from_mirror(
             pijul_change: change,
             pr: Some(pr.number),
             direction: Direction::GitToPijul,
-            recorded_at: now_iso(),
+            recorded_at: now_timestamp(),
         }) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -383,7 +383,7 @@ pub fn export_integration(
     }
 }
 
-fn now_iso() -> String {
+fn now_timestamp() -> String {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| format!("unix:{}", duration.as_secs()))
