@@ -80,7 +80,8 @@ fi
 
 # 1. Rust formatting and static checks
 run_check rustfmt-check cargo fmt --all -- --check
-run_check cargo-test-all-targets cargo test --all-targets --locked
+if [[ ! -f Cargo.lock ]]; then warn "Cargo.lock absent : Cargo résoudra les dépendances à partir des contraintes de Cargo.toml ; la reproductibilité complète exige de versionner Cargo.lock."; fi
+run_check cargo-test-all-targets cargo test --all-targets
 
 # 2. Lean formalization. Lake uses the repository's lean-toolchain pin.
 if has lake; then
@@ -97,7 +98,7 @@ if [[ "${RUN_IGNORED_ROUNDTRIP:-0}" == "1" ]]; then
     say "RESULT: FAIL ignored-roundtrip — RUN_IGNORED_ROUNDTRIP=1 mais pijul est absent."
     FAIL=$((FAIL + 1))
   else
-    run_check ignored-roundtrip cargo test --test roundtrip --locked -- --ignored --nocapture
+    run_check ignored-roundtrip cargo test --test roundtrip -- --ignored --nocapture
   fi
 else
   skip_check ignored-roundtrip "opt-in uniquement : lancer avec RUN_IGNORED_ROUNDTRIP=1 après installation et vérification des prérequis Pijul/exporteur."
@@ -108,7 +109,7 @@ fi
 # before this runner can claim it was exercised.
 if [[ "${RUN_SIBLING_RERUN_TEST:-0}" == "1" ]]; then
   if cargo test --test roundtrip -- --list 2>&1 | tee "$LOG_DIR/roundtrip-test-list.log" | grep -Eiq 'sibling.*rerun|rerun.*sibling'; then
-    run_check sibling-branch-rerun cargo test --test roundtrip --locked -- --nocapture sibling
+    run_check sibling-branch-rerun cargo test --test roundtrip -- --nocapture sibling
   else
     say "RESULT: FAIL sibling-branch-rerun — aucun test explicitement nommé pour branches sœurs + rerun n'a été trouvé dans tests/roundtrip.rs."
     FAIL=$((FAIL + 1))
