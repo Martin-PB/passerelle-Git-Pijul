@@ -37,11 +37,26 @@ fn command_output(program: &str, args: &[String], cwd: Option<&Path>) -> std::io
 }
 
 fn git(repo: &Path, args: &[&str]) -> std::io::Result<String> {
-    command_output(
-        "git",
-        &args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
-        Some(repo),
-    )
+    // A bare mirror has HEAD/objects/refs at its root and no .git directory.
+    // Setting it as current_dir is not enough: Git will not discover it as a
+    // repository. Use --git-dir explicitly for bare mirrors, while retaining
+    // normal -C/current-directory semantics for checked-out worktrees.
+    let is_bare = repo.join("HEAD").is_file()
+        && repo.join("objects").is_dir()
+        && repo.join("refs").is_dir()
+        && !repo.join(".git").exists();
+    if is_bare {
+        let git_dir = repo.canonicalize()?;
+        let mut command_args = vec!["--git-dir".to_owned(), git_dir.display().to_string()];
+        command_args.extend(args.iter().map(|s| (*s).to_owned()));
+        command_output("git", &command_args, None)
+    } else {
+        command_output(
+            "git",
+            &args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+            Some(repo),
+        )
+    }
 }
 
 fn pijul(repo: &Path, args: &[&str]) -> std::io::Result<String> {
@@ -259,8 +274,23 @@ pub fn translate_pr_from_mirror(
     }
 
     let base_is_ancestor = Command::new("git")
-        .args(["merge-base", "--is-ancestor", &base.sha, &pr.head_sha])
-        .current_dir(git_mirror)
+        .args({
+            let mut args = Vec::new();
+            if git_mirror.join("HEAD").is_file()
+                && git_mirror.join("objects").is_dir()
+                && git_mirror.join("refs").is_dir()
+                && !git_mirror.join(".git").exists()
+            {
+                args.push("--git-dir".to_owned());
+                args.push(git_mirror.canonicalize()?.display().to_string());
+            }
+            args.extend(
+                ["merge-base", "--is-ancestor", &base.sha, &pr.head_sha]
+                    .iter()
+                    .map(|s| (*s).to_owned()),
+            );
+            args
+        })
         .status()?;
     if !base_is_ancestor.success() {
         return Err(std::io::Error::new(
@@ -283,8 +313,23 @@ pub fn translate_pr_from_mirror(
             continue;
         }
         let ancestor = Command::new("git")
-            .args(["merge-base", "--is-ancestor", &previous, &pr.head_sha])
-            .current_dir(git_mirror)
+            .args({
+                let mut args = Vec::new();
+                if git_mirror.join("HEAD").is_file()
+                    && git_mirror.join("objects").is_dir()
+                    && git_mirror.join("refs").is_dir()
+                    && !git_mirror.join(".git").exists()
+                {
+                    args.push("--git-dir".to_owned());
+                    args.push(git_mirror.canonicalize()?.display().to_string());
+                }
+                args.extend(
+                    ["merge-base", "--is-ancestor", &previous, &pr.head_sha]
+                        .iter()
+                        .map(|s| (*s).to_owned()),
+                );
+                args
+            })
             .status()?;
         if !ancestor.success() {
             return Err(std::io::Error::new(
