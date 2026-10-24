@@ -6,7 +6,7 @@
 //! It deliberately fails closed if the CLI's observed result differs from the
 //! design assumption of exactly one change per non-root Git commit.
 
-use crate::ledger::Ledger;
+use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -173,6 +173,140 @@ pub fn import_git_commit(
         (Ok(()), Err(error)) => Err(error),
         (Ok(()), Ok(())) => Ok(()),
     }
+}
+
+/// List channels using the stable human-readable CLI output.
+fn list_channels(pijul_repo: &Path) -> std::io::Result<BTreeSet<String>> {
+    let output = pijul(pijul_repo, &["channel"])?;
+    Ok(output
+        .lines()
+        .map(str::trim)
+        .map(|line| line.strip_prefix("* ").unwrap_or(line))
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn ensure_channel_from(
+    pijul_repo: &Path,
+    source: &str,
+    target: &str,
+) -> std::io::Result<()> {
+    let channels = list_channels(pijul_repo)?;
+    if channels.contains(target) {
+        return Ok(());
+    }
+    if !channels.contains(source) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("source Pijul channel {source:?} does not exist"),
+        ));
+    }
+    pijul(pijul_repo, &["channel", "switch", source])?;
+    pijul(pijul_repo, &["fork", target])?;
+    Ok(())
+}
+
+fn pull_channel_into(
+    pijul_repo: &Path,
+    source: &str,
+    target: &str,
+) -> std::io::Result<()> {
+    pijul(
+        pijul_repo,
+        &["pull", "--all", ".", "--from-channel", source, "--to-channel", target],
+    )?;
+    Ok(())
+}
+
+/// Import one PR, ledger every non-merge commit since base, and materialize
+/// operator-facing `pr-N` and `integration` channels. The target channels
+/// are named, stable entry points; commit-OID channels remain implementation
+/// details created by upstream `pijul git`.
+///
+/// A force-push that is not a fast-forward is rejected when prior ledger
+/// entries for this PR exist. Automatically replacing its channel could
+/// discard operator resolution work, so recovery must be explicit.
+pub fn translate_pr_from_mirror(
+    git_mirror: &Path,
+    pijul_repo: &Path,
+    scratch: &Path,
+    base: &Base,
+    pr: &PullRequest,
+    ledger: &mut Ledger,
+) -> std::io::Result<()> {
+    if base.sha.trim().is_empty() || pr.head_sha.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "base and PR head must be pinned to full Git SHAs",
+        ));
+    }
+
+    let previous_heads: Vec<String> = ledger
+        .by_sha
+        .values()
+        .filter(|entry| entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul)
+        .map(|entry| entry.git_sha.clone())
+        .collect();
+    for previous in previous_heads {
+        if previous == pr.head_sha {
+            continue;
+        }
+        let ancestor = Command::new("git")
+            .args(["merge-base", "--is-ancestor", &previous, &pr.head_sha])
+            .current_dir(git_mirror)
+            .status()?;
+        if !ancestor.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "PR {} head {} is not a fast-forward of previously imported {} ; refusing to overwrite channel pr-{}",
+                    pr.number, pr.head_sha, previous, pr.number
+                ),
+            ));
+        }
+    }
+
+    import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+    import_git_commit(git_mirror, pijul_repo, &pr.head_sha, scratch)?;
+
+    let commits = git(
+        git_mirror,
+        &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
+    )?;
+    for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
+        let parents = git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
+        let parts: Vec<_> = parents.split_whitespace().collect();
+        if parts.len() != 2 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                format!(
+                    "P0 importer currently requires non-merge commits; {sha} has {} parent(s)",
+                    parts.len().saturating_sub(1)
+                ),
+            ));
+        }
+        let change = change_for_git_commit(pijul_repo, sha, parts[1])?;
+        if !ledger.record(Entry {
+            git_sha: sha.to_owned(),
+            pijul_change: change,
+            pr: Some(pr.number),
+            direction: Direction::GitToPijul,
+            recorded_at: now_iso(),
+        }) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Git SHA {sha} is already mapped to a different Pijul change"),
+            ));
+        }
+    }
+
+    ensure_channel_from(pijul_repo, &base.sha, &format!("pr-{}", pr.number))?;
+    pull_channel_into(pijul_repo, &pr.head_sha, &format!("pr-{}", pr.number))?;
+    ensure_channel_from(pijul_repo, &base.sha, "integration")?;
+    pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
+    ledger.save(&crate::ledger::ledger_path(scratch))?;
+    Ok(())
 }
 
 /// Translate one PR into a Pijul channel `pr-<n>`.
