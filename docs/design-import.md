@@ -562,3 +562,11 @@ Le test est `#[ignore]` par défaut car il requiert le vrai binaire Pijul. Le pr
 
 Ce test n'affirme pas que l'approche actuelle réussit : il peut révéler le blocage déjà anticipé sur le channel de base commun. Aucun résultat ne sera revendiqué avant son exécution avec Pijul beta.24.
 
+### Formalisation Lean — écriture du ledger en échec fermé
+
+Commit : [20dfdbc](https://github.com/Martin-PB/passerelle-Git-Pijul/commit/20dfdbc615da48757e3d9fc92408b53ae4585de8).
+
+La spécification ajoute `Ledger.recordChecked`, qui renvoie `none` lorsqu'un OID existe déjà avec un change différent, ainsi que les théorèmes `Ledger.recordChecked_rejects_conflict` et `Ledger.recordChecked_accepts_consistent`. Le contrat évite qu'une association contradictoire soit ajoutée silencieusement au ledger abstrait.
+
+Cette preuve reste une propriété du modèle Lean. Le ledger Rust actuel possède sa propre logique `record` ; le lien entre cette implémentation et le modèle n'est pas encore prouvé, et l'exactitude du change fourni par l'importateur reste une obligation distincte. Build Lean non exécuté.
+
