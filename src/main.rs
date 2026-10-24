@@ -221,6 +221,32 @@ fn merge_prs(args: &[String]) {
     }
 
     println!("Pijul integration channel prepared.");
+    let triage_results = match triage::triage_integration_channel(&pijul_repo) {
+        Ok(results) => results,
+        Err(error) => {
+            eprintln!("cannot inspect integration conflicts: {error}");
+            std::process::exit(1);
+        }
+    };
+    let mut has_conflicts = false;
+    for result in triage_results {
+        match result {
+            triage::Triage::Clean => println!("Pijul reports no unresolved conflicts."),
+            triage::Triage::AutoResolved { rule } => {
+                println!("automatically resolved by rule {rule:?}");
+            }
+            triage::Triage::Operator { report } => {
+                has_conflicts = true;
+                eprintln!("operator resolution required: {}", report.path);
+                eprintln!("{}", report.conflict_state);
+            }
+        }
+    }
+    if has_conflicts {
+        println!("export skipped: unresolved conflicts must be resolved first.");
+        return;
+    }
+
     match export_mode {
         ExportMode::Linear => match translate::export_integration(
             &workdir,
