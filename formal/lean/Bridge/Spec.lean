@@ -257,7 +257,7 @@ def Ledger.recordIfAbsent (ledger : Ledger) (oid : Oid) (change : ChangeId) : Le
     idempotent, nor that a conflicting mapping for the same OID is accepted. -/
 theorem Ledger.recordIfAbsent_idempotent (ledger : Ledger)
     (oid : Oid) (change : ChangeId) :
-    ledger.recordIfAbsent oid change |>.recordIfAbsent oid change =
+    (ledger.recordIfAbsent oid change).recordIfAbsent oid change =
       ledger.recordIfAbsent oid change := by
   by_cases h : (oid, change) ∈ ledger.entries
   · simp [Ledger.recordIfAbsent, h]
