@@ -266,24 +266,22 @@ pas le channel ne vaut jamais `Clean`. Les chemins conflictuels sont rapportés
 implémenter. L'export refuse les conflits et changements non enregistrés.
 
 
-### Blocage de version sur la signature de `pijul git`
+### Vérification exacte de la signature beta.24 de `pijul git`
 
-La documentation amont consultée le 24/10/2026 affiche `pijul git [repo-path]`.
-L'inspection du fichier source amont `pijul/src/commands/git.rs` sur la
-branche `main` confirme un seul argument optionnel `repo_path` ; le code
-ouvre ensuite le dépôt Git à `repo.path` et crée le dépôt Pijul à cet endroit
-si nécessaire. Cela contredit la signature à deux chemins mentionnée plus
-haut dans ce spike.
+La source du paquet exact `pijul 1.0.0-beta.24`, publiée sur docs.rs,
+définit bien deux arguments positionnels optionnels :
+`git_path` et `pijul_path` (`src/commands/git.rs`, lignes 1068–1075).
+Le code ouvre le dépôt Git depuis `git_path`, initialise/ouvre le dépôt
+Pijul depuis `pijul_path`, et stocke le cache incrémental dans
+`<pijul_path>/.pijul/git/db` (lignes 1104–1140). L'appel à deux chemins de
+la passerelle correspond donc bien à l'interface source de beta.24.
 
-**Conclusion corrigée :** la signature à deux chemins n'est pas confirmée et
-ne doit pas être décrite comme un contrat beta.24 vérifié. Le code de la
-passerelle passe actuellement deux chemins à `pijul git`, donc l'import
-reste bloqué tant que la signature du binaire beta.24 ciblé et la stratégie
-de partage du dépôt Pijul ne sont pas résolues ensemble. Retirer simplement
-le second argument n'est pas une correction suffisante : cela changerait
-l'emplacement du dépôt Pijul et invaliderait le partage de l'état/cache supposé
-par le mapping des commits. Aucun round-trip ne doit être revendiqué avant
-une correction cohérente et un test d'intégration exécuté avec beta.24.
+La documentation de la branche `main` consultée séparément ne reflète pas
+cette signature de la version beta.24 ciblée ; elle ne doit pas servir de
+contrat à sa place. **La signature de commande n'est plus le blocage.**
+Restent à démontrer à l'exécution : le comportement incrémental lors d'appels
+successifs avec des clones Git différents, le mapping SHA→change, les
+commandes de channels/pull, puis le round-trip complet. Aucun round-trip ne
+doit être revendiqué avant l'exécution du test d'intégration avec beta.24.
 
-Sources de vérification : manuel officiel `pijul git` et source amont
-`pijul/src/commands/git.rs`, consultés le 24/10/2026.
+Source versionnée : https://docs.rs/crate/pijul/1.0.0-beta.24/source/src/commands/git.rs
