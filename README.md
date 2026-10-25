@@ -94,6 +94,12 @@ sur l'implémentation des backlogs 2.2 et 2.3.
 
 Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md). Le protocole d'accès concurrent au miroir et au workspace est décrit dans [`docs/concurrency.md`](docs/concurrency.md).
 
+L'installation de Lean sur Ubuntu (elan + toolchain épinglé) et le plan d'avancement de la spécification sont décrits dans [`docs/lean-setup.md`](docs/lean-setup.md) :
+
+```sh
+bash scripts/setup-lean.sh
+```
+
 Depuis la racine du dépôt :
 
 ```sh
