@@ -689,3 +689,83 @@ passerelle ne peut pas prétendre démontrer ces hypothèses elle-même.
 prouver ; elle n'est ni une preuve Lean compilée, ni une validation du
 comportement de Pijul. Aucun test ni workflow Actions n'a été exécuté pour
 cette mise à jour.
+
+## 13. Définitions formelles de l'équivalence de plateforme (25/10/2026)
+
+Les définitions Lean correspondantes sont ajoutées à la section 7 et suivantes de
+`formal/lean/Bridge/Spec.lean`. Elles constituent une **couche de définition**,
+pas une preuve que le programme actuel satisfait le contrat.
+
+### 13.1 État observable
+
+Un arbre observable associe chaque chemin canonique à une entrée absente ou à
+l'une des entrées suivantes : fichier (octets + bit exécutable), lien symbolique
+(cible en octets), gitlink/submodule (commit référencé). Les identifiants de
+blob Git ne sont donc pas comparés directement aux identifiants internes Pijul.
+Le traitement des chemins, permissions et métadonnées doit être fixé par
+l'adaptateur concret ; les entrées non prises en charge doivent faire l'objet
+d'une précondition ou d'un rejet explicite.
+
+### 13.2 État de plateforme et provenance
+
+L'état abstrait contient une vue Git, une vue Pijul et un registre de provenance.
+La provenance est une **relation** commit Git ↔ change Pijul, et non une
+bijection imposée par définition. Le contrat distingue :
+- la validité de chaque lien (commit et change existants) ;
+- la couverture des commits dont la traduction exige un change ;
+- la traçabilité des changes créés par la passerelle ;
+- la fermeture des dépendances Pijul dans l'état sélectionné.
+
+Les commits vides ou purement métadonnées doivent être traités explicitement :
+ils ne doivent pas provoquer l'invention d'un change artificiel. Si leur
+topologie ou leurs métadonnées doivent être préservées, cela relève d'un
+contrat complémentaire.
+
+### 13.3 Cohérence et arbitrage
+
+Deux états sont distingués :
+
+- **Point de synchronisation cohérent** : arbres observables équivalents,
+  mappings valides et suffisamment couverts, changes créés par la passerelle
+  traçables, dépendances fermées, aucun conflit natif Pijul en attente.
+- **Arbitrage en attente** : au moins un conflit natif Pijul est exposé ; les
+  invariants de provenance et de dépendances restent valides, mais aucune
+  équivalence finale des arbres n'est revendiquée avant résolution.
+
+La décision d'arbitrage dépend exclusivement des conflits natifs rapportés par
+l'opération Pijul ciblée. Le résultat d'une fusion Git et celui de l'opération
+Pijul appariée sont enregistrés séparément : aucun axiome ne suppose qu'ils
+signalent les mêmes conflits. Un conflit Git peut être considéré comme traité
+sans arbitrage uniquement si l'opération Pijul correspondante ne rapporte pas
+de conflit natif. Cette définition ne prouve pas que cette opération existe
+toujours, ni que Pijul élimine tous les conflits de fusion Git.
+
+### 13.4 Autonomie et synchronisation
+
+L'autonomie signifie que chaque dépôt peut continuer à évoluer selon ses
+opérations natives ; elle **n'impose pas** que les deux arbres restent égaux
+après chaque modification unilatérale. La divergence est permise entre deux
+points de synchronisation. L'idempotence est définie au niveau des observations
+(arbre Git, arbre Pijul, liens de provenance et conflits) : répéter une
+synchronisation ne doit pas modifier ces observations, même si les représentations
+internes natives ne sont pas identiques.
+
+L'amorçage sur un dépôt Git ancien ne peut utiliser que l'historique, les refs,
+les arbres et les autres informations réellement exposées par les interfaces
+Git. La passerelle doit rejeter ou signaler explicitement les cas qu'elle ne
+peut pas traduire ; elle ne peut pas exiger des métadonnées historiques
+indisponibles ni inventer de provenance.
+
+### 13.5 Obligations encore à démontrer
+
+Les prédicats Lean rendent les obligations explicites, mais ne constituent pas
+les théorèmes de correction eux-mêmes. Il reste à prouver la simulation des
+opérations concrètes, la fidélité de traduction, la préservation des
+dépendances et des conflits natifs, l'idempotence, la publication sûre et
+l'autonomie après synchronisation. Tant que la sémantique Pijul utilisée et
+son implémentation ne sont pas reliées au modèle, la preuve reste conditionnelle
+aux hypothèses de cette frontière.
+
+**Validation au 25/10/2026 :** les définitions Lean ont été écrites mais ne sont
+pas compilées dans cette session. Aucun test Rust/Pijul ni workflow Actions n'a
+été exécuté. Ne pas présenter ce commit comme une preuve validée.
