@@ -576,15 +576,6 @@ def PendingArbitration (s : PlatformState) : Prop :=
 def PlatformCoherent (s : PlatformState) : Prop :=
   CoherentCheckpoint s ∨ PendingArbitration s
 
-/-- The repositories retain independent native histories. This predicate
-    records that no identity equality between their history/change identifiers
-    is required; cross-system links are represented only by the ledger relation.
-    It is a design constraint rather than a runtime equality test. -/
-def HistoriesAreNotIdentified (s : PlatformState) : Prop :=
-  ∀ oid change, s.ledger.links oid change →
-    (∃ commit, s.git.history.commit oid = some commit) ∧
-    change ∈ s.pijul.changes
-
 /-! ## 8. Required simulation laws (definitions of proof targets)
 
 The following predicates make the remaining proof obligations precise.
@@ -595,8 +586,9 @@ must connect each concrete operation to these abstract transitions.
 /-- A successful synchronization must end at a coherent checkpoint. A
     conflict-bearing synchronization must instead expose a pending native
     Pijul arbitration. -/
-def SynchronizationCorrect (before after : PlatformState) : Prop :=
-  PlatformCoherent after
+def SynchronizationCorrect (sync : PlatformState → PlatformState)
+    (before : PlatformState) : Prop :=
+  PlatformCoherent (sync before)
 
 /-- Idempotence is stated over abstract platform observations: running the same
     synchronization twice must not change the resulting selected trees,
