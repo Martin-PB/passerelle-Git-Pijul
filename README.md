@@ -114,16 +114,20 @@ passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
 ```
 
 Le pipeline d'import est partiellement câblé. `operator queue` lit les conflits
-du channel `integration` ; `operator submit` applique un change déjà enregistré
-et ajoute des événements à `gateway-audit.jsonl`. La file persistante et
-l'attribution des conflits aux PRs restent à faire. Le mode `linear` peut
-tenter un export local si `pijul-export` est installé séparément ;
-`merge-topology` reste incomplet :
+du channel `integration` ; `operator submit` exige le chemin exact d'un conflit
+affiché par cette commande, vérifie qu'il est encore présent, applique le change,
+puis relance le triage. La commande ne réussit que si le triage confirme que ce
+chemin n'est plus en conflit ; sinon, elle renvoie une erreur et journalise
+l'échec ou le conflit persistant dans `gateway-audit.jsonl`. Cette vérification
+n'est pas encore une file persistante : les conflits sont relus depuis Pijul.
+L'attribution des conflits aux PRs reste à faire. Le mode `linear` peut tenter
+un export local si `pijul-export` est installé séparément ; `merge-topology`
+reste incomplet :
 
 ```sh
 passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
 passerelle operator queue
-passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
+passerelle operator submit --path src/lib.rs --change <hash> --note "choix de l'approche de la branche a"
 
 # Greffon frontal (exemple futur) : un hébergement traduit sa sémantique en refs.
 passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
