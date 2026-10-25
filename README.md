@@ -44,10 +44,12 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 1. **Ingest** — fetch des refs entrantes dans un miroir Git bare, avec historique complet. Le cœur ne suppose pas que les frontières d'un clone shallow soient compatibles avec l'import de l'histoire par `pijul git`.
 2. **Traduction aller** — `pijul git` : un channel interne par commit importé ; les channels nommés (`pr-<n>`, `integration`) restent la surface opérateur. Le ledger enregistre `SHA ↔ change-hash` pour l'idempotence et l'audit.
 3. **Fusion dans Pijul** — un channel `integration` reçoit les changes des branches. Les patchs indépendants **commutent** : une classe entière des « conflits » Git disparaît ici.
-4. **Tri** — trois issues seulement :
-   - `Clean` — les changes commutent ;
-   - `AutoResolved` — règle déterministe (contenu identique, lint, sémantique `union`/`ours`) ; la résolution est un change dédié, étiqueté pour l'audit ;
-   - `Operator` — arbitrage métier réel, ou binaire (toujours opérateur).
+4. **Tri** — trois issues, fondées sur le résultat du modèle natif Pijul :
+   - `Clean` — aucun conflit natif Pijul non résolu n'est signalé ;
+   - `AutoResolved` — futur traitement déterministe d'un conflit natif Pijul (à implémenter) ; la résolution doit devenir un change dédié et auditable ;
+   - `Operator` — conflit natif Pijul encore non résolu après les éventuelles règles automatiques.
+   
+   Un conflit de fusion Git ne déclenche donc pas, à lui seul, un arbitrage : si les changes commutent dans Pijul, aucun arbitrage n'est requis. La passerelle ne crée pas de catégorie séparée de « conflit métier » et ne déduit pas un conflit à partir de marqueurs textuels Git.
 5. **Opérateur** — voir ci-dessous.
 6. **Traduction retour** — le channel `integration` devient une branche Git :
    - `--export-mode linear` : un commit par change, ordre des dépendances, auteurs/dates/messages préservés ;
