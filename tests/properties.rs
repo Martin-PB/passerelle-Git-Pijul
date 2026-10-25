@@ -64,6 +64,40 @@ fn ledger_survives_save_load_cycle() {
 }
 
 #[test]
+fn ledger_save_replaces_complete_snapshot_without_leaving_temporary_files() {
+    let dir = tempfile::tempdir().expect("temp directory");
+    let path = ledger_path(dir.path());
+    let mut ledger = Ledger::default();
+    ledger.record(Entry {
+        git_sha: "first-sha".into(),
+        pijul_change: "first-change".into(),
+        pr: Some(1),
+        direction: Direction::GitToPijul,
+        recorded_at: "t1".into(),
+    });
+    ledger.save(&path).expect("save initial snapshot");
+
+    ledger.record(Entry {
+        git_sha: "second-sha".into(),
+        pijul_change: "second-change".into(),
+        pr: Some(2),
+        direction: Direction::GitToPijul,
+        recorded_at: "t2".into(),
+    });
+    ledger.save(&path).expect("atomically replace snapshot");
+
+    let loaded = Ledger::load(&path).expect("load replaced snapshot");
+    assert!(loaded.get("first-sha").is_some());
+    assert!(loaded.get("second-sha").is_some());
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .expect("list temp directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "temporary files should be cleaned up");
+}
+
+#[test]
 fn operator_boundary_is_producer_agnostic() {
     // The queue accepts a ResolutionChange and nothing else. Whether the
     // change was produced by a lone operator or an operator assisted by an
