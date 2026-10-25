@@ -47,6 +47,69 @@ fn ledger_detects_force_push() {
 }
 
 #[test]
+fn ledger_rejects_same_mapping_with_conflicting_provenance() {
+    let mut ledger = Ledger::default();
+    assert!(ledger.record(Entry {
+        git_sha: "sha-one".into(),
+        pijul_change: "change-one".into(),
+        pr: Some(1),
+        direction: Direction::GitToPijul,
+        recorded_at: "t1".into(),
+    }));
+    assert!(!ledger.record(Entry {
+        git_sha: "sha-one".into(),
+        pijul_change: "change-one".into(),
+        pr: Some(2),
+        direction: Direction::GitToPijul,
+        recorded_at: "t2".into(),
+    }));
+    assert!(!ledger.record(Entry {
+        git_sha: "sha-one".into(),
+        pijul_change: "change-one".into(),
+        pr: Some(1),
+        direction: Direction::PijulToGit,
+        recorded_at: "t3".into(),
+    }));
+}
+
+#[test]
+fn ledger_load_rejects_inconsistent_or_empty_mappings() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_path(dir.path());
+    let invalid_ledgers = [
+        r#"{"lookup-key":{"git_sha":"different-sha","pijul_change":"change-one","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
+        r#"{"sha-one":{"git_sha":"sha-one","pijul_change":"","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
+    ];
+
+    for raw in invalid_ledgers {
+        std::fs::write(&path, raw).unwrap();
+        let error = Ledger::load(&path).expect_err("invalid ledger must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+}
+
+#[test]
+fn ledger_save_rejects_public_map_entries_that_break_invariants() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_path(dir.path());
+    let mut ledger = Ledger::default();
+    ledger.by_sha.insert(
+        "lookup-key".into(),
+        Entry {
+            git_sha: "different-sha".into(),
+            pijul_change: "change-one".into(),
+            pr: None,
+            direction: Direction::GitToPijul,
+            recorded_at: "t".into(),
+        },
+    );
+
+    let error = ledger.save(&path).expect_err("inconsistent map must not be persisted");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(!path.exists());
+}
+
+#[test]
 fn ledger_survives_save_load_cycle() {
     let dir = tempfile::tempdir().unwrap();
     let mut l = Ledger::default();
