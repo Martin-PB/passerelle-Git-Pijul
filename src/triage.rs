@@ -120,17 +120,7 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
             matches!(component, Component::Normal(_) | Component::CurDir)
         });
         let conflict_state = if safe {
-            let file = workdir.join(relative);
-            match std::fs::symlink_metadata(&file) {
-                Ok(metadata) if metadata.file_type().is_file() => {
-                    std::fs::read_to_string(&file).unwrap_or_else(|_| {
-                        "Pijul reported a conflict; file is binary, unreadable, or unavailable."
-                            .into()
-                    })
-                }
-                _ => "Pijul reported a conflict; path is not a regular file, so content was not read."
-                    .into(),
-            }
+            read_conflict_state(workdir, relative)
         } else {
             "Pijul reported a conflict at a non-relative path; content not read.".into()
         };
@@ -145,6 +135,31 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     Ok(reports)
 }
 
+
+/// Read a conflict file only when its resolved path remains inside the
+/// repository root. Checking components alone is insufficient: an in-tree
+/// symlinked parent can otherwise redirect the read outside the repository.
+fn read_conflict_state(workdir: &Path, relative: &Path) -> String {
+    let unavailable = "Pijul reported a conflict; file is binary, unreadable, or unavailable.";
+    let denied = "Pijul reported a conflict; path resolves outside the repository or is not a regular file.";
+    let root = match workdir.canonicalize() {
+        Ok(root) => root,
+        Err(_) => return unavailable.into(),
+    };
+    let file = workdir.join(relative);
+    match std::fs::symlink_metadata(&file) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        _ => return denied.into(),
+    }
+    let resolved = match file.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return unavailable.into(),
+    };
+    if !resolved.starts_with(&root) {
+        return denied.into();
+    }
+    std::fs::read_to_string(resolved).unwrap_or_else(|_| unavailable.into())
+}
 
 #[cfg(test)]
 mod tests {
@@ -164,6 +179,21 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn conflict_content_is_not_read_through_symlinked_parent_outside_repo() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().expect("repo root");
+        let outside = tempfile::tempdir().expect("outside directory");
+        std::fs::write(outside.path().join("secret.txt"), "sensitive outside content")
+            .expect("write outside file");
+        symlink(outside.path(), root.path().join("escape")).expect("create symlink");
+        let state = super::read_conflict_state(root.path(), Path::new("escape/secret.txt"));
+        assert!(!state.contains("sensitive outside content"));
+        assert!(state.contains("outside the repository"));
     }
 
     #[test]
