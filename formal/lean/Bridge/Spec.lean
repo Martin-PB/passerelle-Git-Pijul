@@ -541,7 +541,7 @@ structure ConflictScenario where
 /-- A Git merge conflict has been handled without arbitration only when the
     paired Pijul operation reports no native conflict. This is a classification
     predicate, not a theorem that such a Pijul operation always exists. -/
-def GitConflictHandledByPijul (scenario : ConflictScenario) : Prop :=
+def GitConflictHasNoPijulArbitrationSignal (scenario : ConflictScenario) : Prop :=
   scenario.gitMergeReportedConflict = true ∧ scenario.pijulConflicts = []
 
 /-- The arbitration signal for a scenario is determined solely by native
