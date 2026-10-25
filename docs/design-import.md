@@ -570,3 +570,122 @@ La spécification ajoute `Ledger.recordChecked`, qui renvoie `none` lorsqu'un OI
 
 Cette preuve reste une propriété du modèle Lean. Le ledger Rust actuel possède sa propre logique `record` ; le lien entre cette implémentation et le modèle n'est pas encore prouvé, et l'exactitude du change fourni par l'importateur reste une obligation distincte. Build Lean non exécuté.
 
+## 12. Contrat de plateforme Git ↔ Pijul : définition métier et périmètre (25/10/2026)
+
+Cette section affine l'objectif au niveau de la plateforme, au-delà du critère
+P0 de laboratoire. Elle constitue le contrat de conception à formaliser ; elle
+ne prétend pas que l'implémentation actuelle le satisfait.
+
+### 12.1 Cas d'utilisation
+
+Deux groupes de développeurs peuvent travailler en parallèle sur le même
+logiciel : l'un dans Git, l'autre dans Pijul. La plateforme doit permettre
+d'utiliser les outils propres à chacun des écosystèmes (notamment PR et
+GitHub Actions côté Git) sans obliger les deux dépôts à partager le même
+historique natif.
+
+Chaque dépôt conserve un historique autonome. La duplication structurelle
+des modifications entre dépôts est intentionnelle : il doit rester possible
+de retirer la passerelle et de continuer le développement avec Git seul ou
+Pijul seul. La garantie recherchée est donc la fidélité et la traçabilité des
+correspondances, pas l'absence de copies de changements.
+
+### 12.2 Amorçage sur un dépôt Git existant
+
+Pijul doit pouvoir être ajouté à un dépôt Git ancien sans demander une
+migration préalable de son historique, une instrumentation historique, ni des
+métadonnées qui n'existent pas déjà. L'amorçage de la passerelle ne doit
+s'appuyer que sur les informations que les interfaces/commandes Git permettent
+d'exposer : commits et parents, arbres et contenus, refs et autres métadonnées
+effectivement disponibles par ces interfaces.
+
+Le contrat ne doit pas présupposer que les développeurs ont utilisé la
+passerelle dès le premier commit. Les informations que Git ne permet pas
+d'exposer ne peuvent pas être requises comme précondition silencieuse. Toute
+limite de reconstruction doit être documentée et échouer explicitement, plutôt
+que d'inventer une provenance ou une correspondance.
+
+### 12.3 Équivalence de plateforme, pas identité des dépôts
+
+On cherche une relation de cohérence entre l'état Git, l'état Pijul et le
+registre de correspondance. Elle doit préserver au moins :
+
+- **Fidélité du contenu** aux points de synchronisation définis : les arbres
+  matérialisés représentent les mêmes chemins, types d'entrées, contenus et
+  propriétés observables pertinentes ; comparer directement des identifiants
+  internes Git et Pijul n'est pas une définition sémantique suffisante.
+- **Fidélité de provenance** : une modification synchronisée garde une
+  correspondance vérifiable avec son origine ; les identités et les relations
+  d'historique propres à chaque système ne sont pas confondues.
+- **Autonomie** : chaque dépôt reste un dépôt utilisable indépendamment. Les
+  historiques peuvent différer et les changements peuvent avoir des
+  représentations distinctes dans chaque système.
+- **Convergence contrôlée** : les changements compatibles peuvent être
+  synchronisés sans perte ; répéter l'opération ne crée pas de nouvelles
+  copies accidentelles ni de correspondances contradictoires. Cela n'interdit
+  pas les copies intentionnelles dans les deux historiques.
+- **Traçabilité et sûreté** : les mappings sont justifiés, les imports
+  ambigus échouent fermés, et les refs de sortie ne sont publiées qu'après
+  validation des invariants exigés.
+- **Compatibilité des écosystèmes** : la passerelle ne doit pas invalider les
+  mécanismes Git attendus par les outils de l'écosystème Git, ni empêcher le
+  travail natif côté Pijul.
+
+Cette relation n'impose ni l'égalité des identifiants de commits et de changes,
+ni l'identité des graphes d'historique. La préservation exacte de la topologie
+Git doit rester une garantie distincte, explicitement activée et prouvée si
+elle est nécessaire à un mode donné.
+
+### 12.4 Périmètre de la gestion des conflits
+
+Le périmètre est la gestion de configuration. La détection de conflits
+sémantiques métier que ni le modèle de modifications ni les outils de gestion
+de versions ne détectent est **hors périmètre** ; la plateforme ne promet pas
+de détecter une incompatibilité comportementale silencieuse.
+
+Le rôle spécifique de Pijul est de traiter les conflits natifs que son modèle
+de changes, de dépendances et de commutation fait apparaître. Le contrat
+d'arbitrage retenu est :
+
+**A — seuls les conflits natifs Pijul déclenchent un arbitrage.** Toute
+situation à arbitrer doit être représentée comme un conflit résultant d'une
+opération Pijul définie (application/commutation selon la sémantique exacte
+de la version ciblée). La passerelle ne doit ni substituer à ce signal une
+heuristique métier externe, ni qualifier de « conflit métier » un cas que le
+modèle Pijul ne fait pas apparaître. Un conflit Git purement mécanique peut
+être résolu par la voie Pijul uniquement si le résultat est établi par le
+contrat de traduction et les opérations Pijul ; il ne faut pas supposer que
+tout conflit Git disparaîtra automatiquement.
+
+Les observations de conflits doivent être associées à des scénarios
+d'opérations appariés, pas à une propriété intrinsèque d'un commit. La
+relation entre un conflit Git de fusion et un conflit natif Pijul ne peut pas
+être une simple égalité booléenne universelle : il faut préciser quelle
+opération Pijul représente la fusion des changements concurrents, et quelle
+garantie est attendue lorsque Pijul ne signale pas de conflit.
+
+### 12.5 Ce que cela change pour la preuve
+
+Le prédicat Lean actuel `P0Equivalent` reste un critère provisoire pour un
+corpus synthétique ; il ne formalise pas à lui seul l'équivalence de cette
+plateforme. Le prochain modèle formel doit distinguer :
+
+1. les deux états/historiques natifs et leurs arbres observables ;
+2. les correspondances de provenance entre commits Git et changes Pijul,
+   sans imposer une bijection naïve entre les deux historiques ;
+3. les points de synchronisation et les opérations qui les relient ;
+4. les conflits natifs Pijul produits par les scénarios de concurrence ;
+5. les propriétés d'autonomie, d'idempotence, de convergence et de publication
+   sûre ;
+6. les données effectivement disponibles par les commandes Git lors de
+   l'amorçage d'un dépôt existant.
+
+La preuve finale devra établir une simulation conditionnelle à des hypothèses
+explicites sur la version et la sémantique de Pijul utilisée. Tant que le
+cœur d'import/export Pijul reste une boîte noire non vérifiée, la preuve de la
+passerelle ne peut pas prétendre démontrer ces hypothèses elle-même.
+
+**Validation :** cette section formalise l'intention et les obligations à
+prouver ; elle n'est ni une preuve Lean compilée, ni une validation du
+comportement de Pijul. Aucun test ni workflow Actions n'a été exécuté pour
+cette mise à jour.
