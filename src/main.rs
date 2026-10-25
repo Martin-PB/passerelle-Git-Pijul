@@ -267,7 +267,7 @@ fn merge_prs(args: &[String]) {
             "merge-topology export remains unimplemented; no Git branch was written."
         ),
     }
-    println!("triage and operator resolution remain unimplemented.");
+    println!("automatic resolution rules and PR attribution remain unimplemented; merge-topology export is not available.");
 }
 
 fn operator_cmd(args: &[String]) {
