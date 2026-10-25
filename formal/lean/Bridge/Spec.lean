@@ -662,8 +662,8 @@ every allowed sequence of Git/Pijul work:
 2. each successful translation preserves normalized tree observations;
 3. provenance is sound and complete for commits requiring a change mapping;
 4. Pijul dependency closure and native conflict observations are preserved;
-5. a Git-reported merge conflict is resolved without arbitration only when
-   the paired Pijul operation is conflict-free; otherwise native Pijul conflicts
+5. a Git-reported merge conflict is resolved without arbitration only when the
+   paired Pijul operation is conflict-free; otherwise native Pijul conflicts
    are surfaced for arbitration;
 6. synchronization is idempotent at the observation level and publishes no
    invalid partial state;
