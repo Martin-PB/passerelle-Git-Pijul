@@ -17,7 +17,7 @@ pub struct Entry {
     pub pr: Option<u64>,
     /// How the change entered Pijul (import) or returned to Git (export).
     pub direction: Direction,
-    /// ISO-8601 timestamp of the ledger update.
+    /// Version-0 timestamp marker (`unix:<seconds>`).
     pub recorded_at: String,
 }
 
