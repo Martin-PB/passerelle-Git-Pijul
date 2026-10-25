@@ -439,7 +439,7 @@ theorem observableTreeEq_symm {a b : ObservableTree}
   intro path
   exact (h path).symm
 
-theorem observableTreeEq_trans {a b c : ObservableableTree}
+theorem observableTreeEq_trans {a b c : ObservableTree}
     (hab : ObservableTreeEq a b) (hbc : ObservableTreeEq b c) :
     ObservableTreeEq a c := by
   intro path
