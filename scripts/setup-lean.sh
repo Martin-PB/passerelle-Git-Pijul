@@ -104,7 +104,6 @@ if ! have elan; then
     exit 1
 fi
 
-if [ -n "$MISSING_RC_NOTE" ]; then :; fi
 if ! grep -q '.elan/bin' "$HOME/.profile" 2>/dev/null && ! grep -q '.elan/bin' "$HOME/.bashrc" 2>/dev/null; then
     printf 'NOTE: add elan to your PATH permanently, e.g. in ~/.bashrc:\n    export PATH="%s:$PATH"\n' "$ELAN_BIN"
 fi
@@ -126,7 +125,6 @@ else
     exit 1
 fi
 
-ACTUAL="$(elan which lean >/dev/null 2>&1 && echo ok || echo unknown)"
 echo "info: elan resolves the pinned toolchain automatically from lean-toolchain"
 
 # --- Build -------------------------------------------------------------------
