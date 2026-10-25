@@ -64,21 +64,23 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
 }
 
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
+    fn invalid(message: impl Into<String>) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, message.into())
+    }
+
     let identifies_integration = status.lines().any(|line| {
         let line = line.trim();
-        (line.starts_with("On branch ") || line.starts_with("On channel "))
-            && line.contains("integration")
+        line.strip_prefix("On branch ") == Some("integration")
+            || line.strip_prefix("On channel ") == Some("integration")
     });
     if !identifies_integration {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "pijul status output did not identify the integration channel; refusing to assume it is clean",
+        return Err(invalid(
+            "pijul status output did not identify the exact integration channel; refusing to assume it is clean",
         ));
     }
 
     if status.contains("Unrecorded changes") || status.contains("Untracked files") {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+        return Err(invalid(
             "integration has unrecorded or untracked work; refusing to classify it as clean",
         ));
     }
@@ -87,30 +89,54 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     let mut paths = Vec::new();
     for line in status.lines() {
         let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed == "On branch integration"
+            || trimmed == "On channel integration"
+        {
+            continue;
+        }
         if trimmed == "Unresolved conflicts:" {
+            if in_conflicts {
+                return Err(invalid(
+                    "pijul status repeated the unresolved-conflicts section",
+                ));
+            }
             in_conflicts = true;
             continue;
         }
-        if !in_conflicts {
+        if in_conflicts {
+            if trimmed.starts_with("(fix conflicts") {
+                continue;
+            }
+            if !line.starts_with(' ') && !line.starts_with('\t') {
+                return Err(invalid(format!(
+                    "unrecognized pijul status line after unresolved-conflicts section: {trimmed:?}"
+                )));
+            }
+            paths.push(trimmed.to_owned());
             continue;
         }
-        if trimmed.is_empty() || trimmed.starts_with("(fix conflicts") {
-            continue;
-        }
-        if !line.starts_with(' ') && !line.starts_with('\t') {
-            break;
-        }
-        paths.push(trimmed.to_owned());
+        return Err(invalid(format!(
+            "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
+        )));
     }
 
     if !in_conflicts {
         return Ok(vec![Triage::Clean]);
     }
     if paths.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+        return Err(invalid(
             "pijul status reported unresolved conflicts but no conflict paths could be parsed",
         ));
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    for path in &paths {
+        if !seen.insert(path.clone()) {
+            return Err(invalid(format!(
+                "pijul status repeated conflict path {path:?}; refusing ambiguous triage"
+            )));
+        }
     }
 
     let mut reports = Vec::with_capacity(paths.len());
@@ -144,7 +170,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     }
     Ok(reports)
 }
-
 
 #[cfg(test)]
 mod tests {
