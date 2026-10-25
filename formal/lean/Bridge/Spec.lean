@@ -85,7 +85,7 @@ theorem ancestry_transitive (h : GitHistory) {a b c : Oid}
     (hab : Ancestor h a b) (hbc : Ancestor h b c) : Ancestor h a c := by
   induction hbc with
   | refl => exact hab
-  | step parent child hbp edge ih =>
+  | step hbp edge ih =>
       exact Ancestor.step ih edge
 
 /-- Each direct parent edge strictly increases rank in the forward direction. -/
@@ -99,7 +99,7 @@ theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
     (ha : Ancestor h a d) : h.rank a ≤ h.rank d := by
   induction ha with
   | refl => exact Nat.le_refl _
-  | step parent child hprev edge ih =>
+  | step hprev edge ih =>
       exact Nat.le_trans ih (Nat.le_of_lt (parent_edge_rank_lt h edge))
 
 /-- A non-reflexive ancestor path strictly increases rank. This rules out a
@@ -109,7 +109,7 @@ theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
   cases ha with
   | refl =>
       exact False.elim (hne rfl)
-  | step parent child hprev edge =>
+  | step hprev edge =>
       exact Nat.lt_of_le_of_lt (ancestor_rank_le h hprev)
         (parent_edge_rank_lt h edge)
 
@@ -158,8 +158,8 @@ theorem tree_refinement_along_ancestry (h : GitHistory)
     TreeEq (r.gitTree head) (r.pijulTree head) := by
   induction reach with
   | refl => exact baseCorrect
-  | step parent child hprev edge ih =>
-      exact r.edgePreserves parent child edge ih
+  | step hprev edge ih =>
+      exact r.edgePreserves _ _ edge ih
 
 /-! ## 2. Abstract change model and trust boundary -/
 
@@ -284,7 +284,9 @@ theorem Ledger.recordChecked_rejects_conflict (ledger : Ledger)
   have hAny :
       ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true := by
     rw [List.any_eq_true]
-    exact ⟨(oid, existing), hEntry, ⟨rfl, hDifferent⟩⟩
+    refine ⟨(oid, existing), hEntry, ?_⟩
+    simp only [decide_eq_true]
+    exact ⟨rfl, hDifferent⟩
   rw [Ledger.recordChecked, if_pos hAny]
 
 /-- If no conflicting association exists, the checked write returns the
@@ -304,11 +306,12 @@ theorem Ledger.recordChecked_accepts_consistent (ledger : Ledger)
     | true =>
         rw [List.any_eq_true] at hh
         obtain ⟨pair, hmem, hp⟩ := hh
+        have hp' : pair.1 = oid ∧ pair.2 ≠ change := of_decide_eq_true hp
         have hmem' : (oid, pair.2) ∈ ledger.entries := by
-          rw [← hp.1]
+          rw [← hp'.1]
           exact hmem
-        exact (hNoConflict ⟨pair.2, hmem', hp.2⟩).elim
-  rw [Ledger.recordChecked, if_neg hAny]
+        exact (hNoConflict ⟨pair.2, hmem', hp'.2⟩).elim
+  rw [Ledger.recordChecked, if_neg (by simp [hAny])]
 
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
