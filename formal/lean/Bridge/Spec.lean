@@ -284,9 +284,7 @@ theorem Ledger.recordChecked_rejects_conflict (ledger : Ledger)
   have hAny :
       ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true := by
     rw [List.any_eq_true]
-    refine ⟨(oid, existing), hEntry, ?_⟩
-    simp only [decide_eq_true]
-    exact ⟨rfl, hDifferent⟩
+    exact ⟨(oid, existing), hEntry, decide_eq_true ⟨rfl, hDifferent⟩⟩
   rw [Ledger.recordChecked, if_pos hAny]
 
 /-- If no conflicting association exists, the checked write returns the
@@ -311,7 +309,11 @@ theorem Ledger.recordChecked_accepts_consistent (ledger : Ledger)
           rw [← hp'.1]
           exact hmem
         exact (hNoConflict ⟨pair.2, hmem', hp'.2⟩).elim
-  rw [Ledger.recordChecked, if_neg (by simp [hAny])]
+  have hne :
+      ¬(ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true) := by
+    rw [hAny]
+    exact fun h => Bool.noConfusion h
+  rw [Ledger.recordChecked, if_neg hne]
 
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
