@@ -369,7 +369,7 @@ fn operator_cmd(args: &[String]) {
         }
         _ => {
             eprintln!(
-                "usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]"
+                "usage: passerelle operator <queue|submit> [--workdir PATH] [--path CONFLICT_PATH] [--change HASH] [--note TEXT]"
             );
             std::process::exit(2);
         }
