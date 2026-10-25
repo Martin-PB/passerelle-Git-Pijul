@@ -114,8 +114,8 @@ sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
 
 ```sh
 passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
-  --ref refs/heads/main=refs/remotes/base/main \
-  --ref refs/heads/pr-42=refs/remotes/pr/42 \
+  --ref refs/heads/main=refs/remotes/base/main \\
+  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
   --ref refs/heads/pr-43=refs/remotes/pr/43
 ```
 
