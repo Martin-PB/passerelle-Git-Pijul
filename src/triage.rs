@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn channel_name_must_match_exactly() {
-        let status = "On branch not-integration\\n";
+        let status = "On branch not-integration\n";
         assert_eq!(
             parse_status_output(Path::new("."), status)
                 .unwrap_err()
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn unknown_status_output_is_not_misclassified_as_clean() {
-        let status = "On channel integration\\n\\nStatus format changed unexpectedly\\n";
+        let status = "On channel integration\n\nStatus format changed unexpectedly\n";
         assert_eq!(
             parse_status_output(Path::new("."), status)
                 .unwrap_err()
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn duplicate_conflict_paths_are_rejected() {
-        let status = "On channel integration\\n\\nUnresolved conflicts:\\n  (fix conflicts and record the resolution)\\n    src/lib.rs\\n    src/lib.rs\\n";
+        let status = "On channel integration\n\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    src/lib.rs\n    src/lib.rs\n";
         assert_eq!(
             parse_status_output(Path::new("."), status)
                 .unwrap_err()
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn channel_header_variant_is_supported() {
-        let status = "On channel integration\\n";
+        let status = "On channel integration\n";
         assert!(matches!(
             parse_status_output(Path::new("."), status).unwrap().as_slice(),
             [Triage::Clean]
