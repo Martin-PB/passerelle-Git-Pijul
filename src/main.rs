@@ -11,7 +11,7 @@
 //!
 //!   passerelle merge-prs 42 43 --base main --export-mode merge-topology
 //!   passerelle operator queue
-//!   passerelle operator submit --change <hash> --note "chose branch A"
+//!   passerelle operator submit --path src/lib.rs --change <hash> --note "chose branch A"
 
 use passerelle_git_pijul::{export, ingest, ledger, operator, translate, triage, ExportMode};
 use std::path::PathBuf;
