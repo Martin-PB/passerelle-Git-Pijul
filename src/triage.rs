@@ -64,15 +64,19 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
 }
 
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
-    let identifies_integration = status.lines().any(|line| {
-        let line = line.trim();
-        (line.starts_with("On branch ") || line.starts_with("On channel "))
-            && line.contains("integration")
-    });
-    if !identifies_integration {
+    // Accept only the exact channel labels emitted by the known status format.
+    // Substring matching could accidentally accept e.g. "integration-old".
+    let channel_lines: Vec<_> = status
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("On branch ") || line.starts_with("On channel "))
+        .collect();
+    if channel_lines.len() != 1
+        || !matches!(channel_lines[0], "On branch integration" | "On channel integration")
+    {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "pijul status output did not identify the integration channel; refusing to assume it is clean",
+            "pijul status did not identify exactly the integration channel; refusing to assume it is clean",
         ));
     }
 
@@ -84,26 +88,52 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     }
 
     let mut in_conflicts = false;
+    let mut saw_conflict_section = false;
     let mut paths = Vec::new();
+
     for line in status.lines() {
         let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed == "On branch integration"
+            || trimmed == "On channel integration"
+        {
+            continue;
+        }
+
         if trimmed == "Unresolved conflicts:" {
+            if saw_conflict_section {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "pijul status repeated the unresolved-conflicts section",
+                ));
+            }
+            saw_conflict_section = true;
             in_conflicts = true;
             continue;
         }
+
         if !in_conflicts {
-            continue;
+            // Once the channel header is accounted for, any other non-empty
+            // status line must be understood. Unknown sections must not become Clean.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unrecognized pijul status line: {trimmed:?}"),
+            ));
         }
-        if trimmed.is_empty() || trimmed.starts_with("(fix conflicts") {
+
+        if trimmed.starts_with("(fix conflicts") {
             continue;
         }
         if !line.starts_with(' ') && !line.starts_with('\t') {
-            break;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unexpected line in pijul unresolved-conflicts section: {trimmed:?}"),
+            ));
         }
         paths.push(trimmed.to_owned());
     }
 
-    if !in_conflicts {
+    if !saw_conflict_section {
         return Ok(vec![Triage::Clean]);
     }
     if paths.is_empty() {
@@ -145,7 +175,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     Ok(reports)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{parse_status_output, Triage};
@@ -161,6 +190,35 @@ mod tests {
         assert_eq!(
             parse_status_output(Path::new("."), "no channel reported\n")
                 .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn unknown_status_sections_fail_closed_instead_of_reporting_clean() {
+        for status in [
+            "On branch integration\\nFuture status section:\\n  item.txt\\n",
+            "On branch integration\\nChanges not understood by this parser\\n",
+            "On branch integration-old\\n",
+            "On branch integration\\nUnresolved conflicts:\\n  (fix conflicts and record the resolution)\\n",
+        ] {
+            assert_eq!(
+                parse_status_output(Path::new("."), status)
+                    .expect_err("unknown or malformed status must not be treated as clean")
+                    .kind(),
+                std::io::ErrorKind::InvalidData,
+                "unexpectedly accepted status: {status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_status_lines_after_conflict_heading_fail_closed() {
+        let status = "On branch integration\\nUnresolved conflicts:\\n  conflict.txt\\nUnexpected footer\\n";
+        assert_eq!(
+            parse_status_output(Path::new("."), status)
+                .expect_err("unexpected trailing status text must be rejected")
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
