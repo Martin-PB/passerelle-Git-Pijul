@@ -476,6 +476,55 @@ fn now_timestamp() -> String {
 
 
 #[cfg(test)]
+mod ledger_checkpoint_tests {
+    use super::record_mapping_and_checkpoint;
+    use crate::ledger::{ledger_path, Direction, Entry, Ledger};
+
+    fn entry(git_sha: &str, pijul_change: &str) -> Entry {
+        Entry {
+            git_sha: git_sha.into(),
+            pijul_change: pijul_change.into(),
+            pr: Some(42),
+            direction: Direction::GitToPijul,
+            recorded_at: "test-time".into(),
+        }
+    }
+
+    #[test]
+    fn completed_mapping_is_persisted_immediately() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+
+        record_mapping_and_checkpoint(&mut ledger, entry("sha-one", "change-one"), &path)
+            .expect("checkpoint mapping");
+
+        let loaded = Ledger::load(&path).expect("load checkpoint");
+        assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
+    }
+
+    #[test]
+    fn conflicting_mapping_does_not_replace_persisted_checkpoint() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+        record_mapping_and_checkpoint(&mut ledger, entry("sha-one", "change-one"), &path)
+            .expect("checkpoint original mapping");
+
+        let error = record_mapping_and_checkpoint(
+            &mut ledger,
+            entry("sha-one", "different-change"),
+            &path,
+        )
+        .expect_err("a conflicting mapping must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let loaded = Ledger::load(&path).expect("load original checkpoint");
+        assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
+    }
+}
+
+#[cfg(test)]
 mod bare_mirror_tests {
     use super::{git, git_status};
     use std::path::Path;
