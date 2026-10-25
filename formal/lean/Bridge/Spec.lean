@@ -399,6 +399,8 @@ No end-to-end correctness theorem is claimed in this file.
 
 end PijulBridge
 
+namespace PijulBridge
+
 /-! ## 7. Platform-level Git ↔ Pijul contract (definition layer)
 
 These definitions refine the synthetic P0 criterion into a platform contract.
@@ -643,3 +645,5 @@ None of these end-to-end properties follows from the definitions alone.
 The actual Pijul operation semantics and the Rust implementation must be
 connected to these predicates; tests and the CLI exit status are not proofs.
 -/
+
+end PijulBridge
