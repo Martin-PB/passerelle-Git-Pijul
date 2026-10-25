@@ -13,7 +13,9 @@
 //!   passerelle operator queue
 //!   passerelle operator submit --change <hash> --note "chose branch A"
 
-use passerelle_git_pijul::{export, ingest, ledger, operator, translate, triage, workspace_lock::WorkspaceLock, ExportMode};
+use passerelle_git_pijul::{
+    export, ingest, ledger, operator, translate, triage, workspace_lock::WorkspaceLock, ExportMode,
+};
 use std::path::PathBuf;
 
 fn main() {
