@@ -92,7 +92,7 @@ sur l'implémentation des backlogs 2.2 et 2.3.
 
 ## Vérification locale Linux
 
-Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md).
+Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md). Le protocole d'accès concurrent au miroir et au workspace est décrit dans [`docs/concurrency.md`](docs/concurrency.md).
 
 Depuis la racine du dépôt :
 
