@@ -43,8 +43,34 @@ impl Ledger {
             return Ok(Self::default());
         }
         let raw = std::fs::read_to_string(path)?;
-        serde_json::from_str(&raw)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        let ledger: Self = serde_json::from_str(&raw)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        ledger.validate()?;
+        Ok(ledger)
+    }
+
+    /// Check invariants that must hold for a persisted SHA-to-change mapping.
+    /// The map key is the lookup identity and must match the entry's own SHA;
+    /// empty change hashes cannot be used for replay/idempotence decisions.
+    fn validate(&self) -> std::io::Result<()> {
+        for (key, entry) in &self.by_sha {
+            if key.trim().is_empty() || key != &entry.git_sha {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "ledger key {key:?} does not match entry Git SHA {:?}",
+                        entry.git_sha
+                    ),
+                ));
+            }
+            if entry.pijul_change.trim().is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("ledger entry for {key:?} has an empty Pijul change hash"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Persist the ledger with an atomic same-directory replacement.
@@ -55,6 +81,7 @@ impl Ledger {
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         use std::io::Write;
 
+        self.validate()?;
         let raw = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let parent = path
@@ -105,12 +132,18 @@ impl Ledger {
     }
 
     /// Record a translation. Returns false if this SHA was already ledged
-    /// with a DIFFERENT change hash, i.e. the Git side moved under us
-    /// (force-push detection).
+    /// with a different change hash or conflicting provenance (PR/direction),
+    /// i.e. the mapping is inconsistent or the Git side moved under us.
     pub fn record(&mut self, entry: Entry) -> bool {
         match self.by_sha.get(&entry.git_sha) {
-            Some(existing) if existing.pijul_change != entry.pijul_change => false,
-            Some(_) => true, // idempotent re-record
+            Some(existing)
+                if existing.pijul_change != entry.pijul_change
+                    || existing.pr != entry.pr
+                    || existing.direction != entry.direction =>
+            {
+                false
+            }
+            Some(_) => true, // same mapping and provenance: idempotent re-record
             None => {
                 self.by_sha.insert(entry.git_sha.clone(), entry);
                 true
