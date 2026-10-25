@@ -67,6 +67,31 @@ fn pijul(repo: &Path, args: &[&str]) -> std::io::Result<String> {
     )
 }
 
+/// Require an immutable, fully resolved commit OID at the bridge boundary.
+/// Branch names and other revision expressions are rejected even if Git can
+/// resolve them, so later ref movement cannot silently change the import input.
+fn require_pinned_commit(git_mirror: &Path, oid: &str, role: &str) -> std::io::Result<()> {
+    if oid.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{role} commit OID must not be empty"),
+        ));
+    }
+    let resolved = git(
+        git_mirror,
+        &["rev-parse", &format!("{oid}^{{commit}}")],
+    )?;
+    if resolved != oid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "{role} must be pinned to a full commit OID; requested {oid:?}, resolved {resolved:?}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn git_status(repo: &Path, args: &[&str]) -> std::io::Result<ExitStatus> {
     let is_bare = repo.join("HEAD").is_file()
         && repo.join("objects").is_dir()
@@ -302,12 +327,8 @@ pub fn translate_pr_from_mirror(
     pr: &PullRequest,
     ledger: &mut Ledger,
 ) -> std::io::Result<()> {
-    if base.sha.trim().is_empty() || pr.head_sha.trim().is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "base and PR head must be pinned to full Git SHAs",
-        ));
-    }
+    require_pinned_commit(git_mirror, &base.sha, "base")?;
+    require_pinned_commit(git_mirror, &pr.head_sha, "PR head")?;
 
     let base_is_ancestor = git_status(
         git_mirror,
@@ -559,6 +580,47 @@ mod stable_base_channel_tests {
             parent_state_channel("fedcba9876543210", "0123456789abcdef", stable),
             "fedcba9876543210"
         );
+    }
+}
+
+#[cfg(test)]
+mod pinned_commit_tests {
+    use super::require_pinned_commit;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git must be installed for pinned-commit tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn accepts_full_commit_oid_and_rejects_movable_branch_name() {
+        let root = tempfile::tempdir().expect("temporary Git repository");
+        run_git(root.path(), &["init", "-b", "main"]);
+        run_git(root.path(), &["config", "user.name", "Synthetic Test"]);
+        run_git(root.path(), &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(root.path().join("file.txt"), "base\n").expect("write file");
+        run_git(root.path(), &["add", "file.txt"]);
+        run_git(root.path(), &["commit", "-m", "base"]);
+        let sha = run_git(root.path(), &["rev-parse", "HEAD"]);
+
+        require_pinned_commit(root.path(), &sha, "test base")
+            .expect("full commit OID should be accepted");
+        let error = require_pinned_commit(root.path(), "main", "test base")
+            .expect_err("a movable branch name must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("must be pinned"));
     }
 }
 
