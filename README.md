@@ -113,7 +113,7 @@ d’un hébergeur particulier. Pour utiliser ensuite `merge-prs`, épingle la ba
 sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
 
 ```sh
-  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
+passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
   --ref refs/heads/main=refs/remotes/base/main \
   --ref refs/heads/pr-42=refs/remotes/pr/42 \
   --ref refs/heads/pr-43=refs/remotes/pr/43
