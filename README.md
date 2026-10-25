@@ -44,7 +44,7 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 1. **Ingest** — fetch des refs entrantes dans un miroir Git bare, avec historique complet. Le cœur ne suppose pas que les frontières d'un clone shallow soient compatibles avec l'import de l'histoire par `pijul git`.
 2. **Traduction aller** — `pijul git` : un channel interne par commit importé ; les channels nommés (`pr-<n>`, `integration`) restent la surface opérateur. Le ledger enregistre `SHA ↔ change-hash` pour l'idempotence et l'audit.
 3. **Fusion dans Pijul** — un channel `integration` reçoit les changes des branches. Les patchs indépendants **commutent** : une classe entière des « conflits » Git disparaît ici.
-4. **Tri** — trois issue seulement :
+4. **Tri** — trois issues seulement :
    - `Clean` — les changes commutent ;
    - `AutoResolved` — règle déterministe (contenu identique, lint, sémantique `union`/`ours`) ; la résolution est un change dédié, étiqueté pour l'audit ;
    - `Operator` — arbitrage métier réel, ou binaire (toujours opérateur).
@@ -113,7 +113,7 @@ d’un hébergeur particulier. Pour utiliser ensuite `merge-prs`, épingle la ba
 sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
 
 ```sh
-passerelle ingest --remote ../repo-source --workdir .gateway-mirror \
+  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
   --ref refs/heads/main=refs/remotes/base/main \
   --ref refs/heads/pr-42=refs/remotes/pr/42 \
   --ref refs/heads/pr-43=refs/remotes/pr/43
