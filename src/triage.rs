@@ -83,6 +83,21 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         ));
     }
 
+    // Pijul's human-readable status output is not a machine-stable protocol.
+    // If it mentions conflicts but the expected section header is absent, do
+    // not silently classify an unfamiliar output format as clean.
+    let has_conflict_signal = status.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("conflict") || lower.contains("unresolved")
+    });
+    let has_conflict_section = status.lines().any(|line| line.trim() == "Unresolved conflicts:");
+    if has_conflict_signal && !has_conflict_section {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "pijul status mentions conflicts but uses an unrecognized format; refusing to assume clean",
+        ));
+    }
+
     let mut in_conflicts = false;
     let mut paths = Vec::new();
     for line in status.lines() {
@@ -164,6 +179,23 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn unfamiliar_conflict_output_fails_closed_instead_of_reporting_clean() {
+        let status = "On branch integration\n\nConflicts:\n  conflict.txt\n";
+        let error = parse_status_output(Path::new("."), status)
+            .expect_err("unrecognized conflict format must not be clean");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("unrecognized format"));
+    }
+
+    #[test]
+    fn unresolved_header_without_paths_fails_closed() {
+        let status = "On branch integration\n\nUnresolved conflicts:\n";
+        let error = parse_status_output(Path::new("."), status)
+            .expect_err("empty unresolved section must not be clean");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
