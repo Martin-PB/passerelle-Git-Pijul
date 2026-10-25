@@ -1,4 +1,4 @@
-/*
+/-
 Copyright (c) 2026 Martin-PB. All rights reserved.
 See the repository root for the applicable license.
 
@@ -8,7 +8,7 @@ This file specifies contracts before choosing an import algorithm. It does NOT
 claim to model the full Pijul patch calculus yet. The abstract Pijul interface
 below is an explicit proof boundary, not a theorem about the upstream CLI. Do
 not add axioms that simply assert the desired end-to-end correctness property.
-*/
+-/
 
 import Std
 
