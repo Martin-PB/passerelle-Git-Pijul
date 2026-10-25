@@ -49,8 +49,8 @@ pub struct ResolutionChange {
 /// CLI (and later web) console.
 ///
 /// Receiving a resolution is not proof that Pijul accepted it or that a
-/// conflict disappeared. Pending reports are therefore cleared only after a
-/// caller re-runs Pijul triage and explicitly acknowledges the resolved path.
+/// conflict disappeared. This in-memory type never clears pending reports;
+/// the CLI's apply-and-verify path re-runs Pijul triage before reporting success.
 #[derive(Debug, Default)]
 pub struct OperatorQueue {
     pub pending: Vec<ConflictReport>,
