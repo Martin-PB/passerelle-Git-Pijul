@@ -265,6 +265,27 @@ fn pull_channel_into(
     Ok(())
 }
 
+/// Stable operator-internal channel name for a pinned Git base commit.
+/// OID-named channels are temporary implementation details of `pijul git`;
+/// the base used to initialize later PR channels must outlive those OID channels.
+fn stable_base_channel_name(base_sha: &str) -> String {
+    format!("base-{base_sha}")
+}
+
+/// The first commit in a PR may have a parent OID channel that a prior import
+/// removed. Use the retained stable base channel for that one snapshot.
+fn parent_state_channel<'a>(
+    parent_sha: &'a str,
+    base_sha: &str,
+    stable_base_channel: &'a str,
+) -> &'a str {
+    if parent_sha == base_sha {
+        stable_base_channel
+    } else {
+        parent_sha
+    }
+}
+
 /// Import one PR, ledger every non-merge commit since base, and materialize
 /// operator-facing `pr-N` and `integration` channels. The target channels
 /// are named, stable entry points; commit-OID channels remain implementation
@@ -328,29 +349,71 @@ pub fn translate_pr_from_mirror(
     }
 
     // Pijul beta.24 may drop intermediate OID channels as soon as their
-    // children are imported. Snapshot each parent state before importing its
-    // child, then compute the one-change delta immediately while the child
-    // channel is still available. Importing the entire head first and mapping
-    // afterward is incorrect for histories longer than one commit.
+    // children are imported. Keep a stable channel for the pinned base and
+    // snapshot each parent before importing its child. A later PR must not
+    // depend on the base OID channel still existing.
     let pr_channel = format!("pr-{}", pr.number);
+    let base_channel = stable_base_channel_name(&base.sha);
     let has_previous_import = ledger.by_sha.values().any(|entry| {
         entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul
     });
+    let has_any_import = ledger
+        .by_sha
+        .values()
+        .any(|entry| entry.direction == Direction::GitToPijul);
+
+    let mut channels = list_channels(pijul_repo)?;
+    if !channels.contains(&base_channel) {
+        if !channels.contains(&base.sha) {
+            if has_any_import {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "stable base channel {base_channel:?} is missing and the OID channel {} is unavailable after prior imports; refusing unsafe reinitialization",
+                        base.sha
+                    ),
+                ));
+            }
+            import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+            channels = list_channels(pijul_repo)?;
+        }
+        ensure_channel_from(pijul_repo, &base.sha, &base_channel)?;
+        channels = list_channels(pijul_repo)?;
+    }
+
     if !has_previous_import {
-        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-        ensure_channel_from(pijul_repo, &base.sha, &pr_channel)?;
-        ensure_channel_from(pijul_repo, &base.sha, "integration")?;
-    } else {
-        let channels = list_channels(pijul_repo)?;
-        if !channels.contains(&pr_channel) || !channels.contains("integration") {
+        if channels.contains(&pr_channel) {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
+                std::io::ErrorKind::AlreadyExists,
                 format!(
-                    "ledger has prior entries for PR {} but its named channels are missing; refusing unsafe reinitialization",
-                    pr.number
+                    "channel {pr_channel:?} exists without matching ledger entries; refusing to reuse possibly stale state"
                 ),
             ));
         }
+        ensure_channel_from(pijul_repo, &base_channel, &pr_channel)?;
+        channels = list_channels(pijul_repo)?;
+        if channels.contains("integration") {
+            if !has_any_import {
+                let base_changes = changes_on_channel(pijul_repo, &base_channel)?;
+                let integration_changes = changes_on_channel(pijul_repo, "integration")?;
+                if integration_changes != base_changes {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "integration channel differs from the stable base but the ledger has no imports; refusing to reuse possibly stale state",
+                    ));
+                }
+            }
+        } else {
+            ensure_channel_from(pijul_repo, &base_channel, "integration")?;
+        }
+    } else if !channels.contains(&pr_channel) || !channels.contains("integration") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "ledger has prior entries for PR {} but its named channels are missing; refusing unsafe reinitialization",
+                pr.number
+            ),
+        ));
     }
 
     let commits = git(
@@ -383,7 +446,8 @@ pub fn translate_pr_from_mirror(
             ));
         }
         let parent_sha = parts[1];
-        let before = changes_on_channel(pijul_repo, parent_sha)?;
+        let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
+        let before = changes_on_channel(pijul_repo, parent_channel)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
