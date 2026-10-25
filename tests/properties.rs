@@ -94,11 +94,9 @@ fn operator_boundary_is_producer_agnostic() {
     assert_eq!(q.received.len(), 1);
     assert_eq!(q.received[0].change_hash, "XYZ123");
 
-    // Only a fresh triage result may be acknowledged, and only the matching
-    // path is removed from the pending queue.
-    assert!(q.acknowledge_resolved("src/lib.rs"));
-    assert_eq!(q.pending.len(), 1);
-    assert_eq!(q.pending[0].path, "README.md");
-    assert!(!q.acknowledge_resolved("missing.rs"));
-    assert_eq!(q.pending.len(), 1);
+    // The in-memory queue does not acknowledge conflicts itself. The CLI
+    // path performs application plus fresh Pijul triage before reporting success.
+    assert_eq!(q.pending.len(), 2);
+    assert_eq!(q.pending[0].path, "src/lib.rs");
+    assert_eq!(q.pending[1].path, "README.md");
 }
