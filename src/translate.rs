@@ -363,6 +363,18 @@ pub fn translate_pr_from_mirror(
         .any(|entry| entry.direction == Direction::GitToPijul);
 
     let mut channels = list_channels(pijul_repo)?;
+    if channels
+        .iter()
+        .any(|channel| channel.starts_with("base-") && channel != &base_channel)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "a different stable base channel already exists; refusing to combine base {} with an integration history built from another base",
+                base.sha
+            ),
+        ));
+    }
     if !channels.contains(&base_channel) {
         if !channels.contains(&base.sha) {
             if has_any_import {
