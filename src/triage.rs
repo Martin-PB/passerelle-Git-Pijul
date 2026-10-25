@@ -63,6 +63,60 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
     parse_status_output(workdir, &status)
 }
 
+/// Read a conflicted file only when every path component is a real directory
+/// or regular file. Checking only the final component is insufficient: an
+/// intermediate symlink could redirect the read outside the Pijul worktree.
+fn read_conflict_state(workdir: &Path, path: &str) -> String {
+    let relative = Path::new(path);
+    if !relative.components().all(|component| {
+        matches!(component, Component::Normal(_) | Component::CurDir)
+    }) {
+        return "Pijul reported a conflict at a non-relative path; content not read.".into();
+    }
+
+    let components: Vec<_> = relative.components().collect();
+    if components.is_empty() {
+        return "Pijul reported a conflict at an empty path; content not read.".into();
+    }
+
+    let mut current = workdir.to_path_buf();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Normal(name) => current.push(name),
+            Component::CurDir => {}
+            _ => {
+                return "Pijul reported a conflict at a non-relative path; content not read."
+                    .into()
+            }
+        }
+
+        let metadata = match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                return "Pijul reported a conflict; file is unavailable, so content was not read."
+                    .into()
+            }
+        };
+        let is_last = index + 1 == components.len();
+        if is_last {
+            if metadata.file_type().is_file() {
+                return std::fs::read_to_string(&current).unwrap_or_else(|_| {
+                    "Pijul reported a conflict; file is binary, unreadable, or unavailable."
+                        .into()
+                });
+            }
+            return "Pijul reported a conflict; path is not a regular file, so content was not read."
+                .into();
+        }
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return "Pijul reported a conflict; path traverses a symlink or non-directory, so content was not read."
+                .into();
+        }
+    }
+
+    "Pijul reported a conflict; file is unavailable, so content was not read.".into()
+}
+
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
     // Accept only the exact channel labels emitted by the known status format.
     // Substring matching could accidentally accept e.g. "integration-old".
@@ -145,25 +199,7 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
 
     let mut reports = Vec::with_capacity(paths.len());
     for path in paths {
-        let relative = Path::new(&path);
-        let safe = relative.components().all(|component| {
-            matches!(component, Component::Normal(_) | Component::CurDir)
-        });
-        let conflict_state = if safe {
-            let file = workdir.join(relative);
-            match std::fs::symlink_metadata(&file) {
-                Ok(metadata) if metadata.file_type().is_file() => {
-                    std::fs::read_to_string(&file).unwrap_or_else(|_| {
-                        "Pijul reported a conflict; file is binary, unreadable, or unavailable."
-                            .into()
-                    })
-                }
-                _ => "Pijul reported a conflict; path is not a regular file, so content was not read."
-                    .into(),
-            }
-        } else {
-            "Pijul reported a conflict at a non-relative path; content not read.".into()
-        };
+        let conflict_state = read_conflict_state(workdir, &path);
         reports.push(Triage::Operator {
             report: ConflictReport {
                 path,
@@ -222,6 +258,30 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn conflict_report_does_not_follow_symlinked_parent_directories() {
+        use super::parse_status_output;
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().expect("Pijul worktree");
+        let outside = tempfile::tempdir().expect("outside directory");
+        std::fs::write(outside.path().join("secret.txt"), "outside secret")
+            .expect("write outside file");
+        symlink(outside.path(), root.path().join("linked-dir"))
+            .expect("create symlinked parent");
+
+        let status = "On branch integration\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    linked-dir/secret.txt\n";
+        let result = parse_status_output(root.path(), status).unwrap();
+        match &result[0] {
+            Triage::Operator { report } => {
+                assert!(report.conflict_state.contains("symlink"));
+                assert!(!report.conflict_state.contains("outside secret"));
+            }
+            other => panic!("expected operator triage, got {other:?}"),
+        }
     }
 
     #[test]
