@@ -1,4 +1,4 @@
-/*
+/-
 Copyright (c) 2026 Martin-PB. All rights reserved.
 See the repository root for the applicable license.
 
@@ -8,7 +8,7 @@ This file specifies contracts before choosing an import algorithm. It does NOT
 claim to model the full Pijul patch calculus yet. The abstract Pijul interface
 below is an explicit proof boundary, not a theorem about the upstream CLI. Do
 not add axioms that simply assert the desired end-to-end correctness property.
-*/
+-/
 
 import Std
 
@@ -84,8 +84,8 @@ theorem parent_is_ancestor (h : GitHistory) {p c : Oid}
 theorem ancestry_transitive (h : GitHistory) {a b c : Oid}
     (hab : Ancestor h a b) (hbc : Ancestor h b c) : Ancestor h a c := by
   induction hbc with
-  | refl _ => exact hab
-  | @step _ _ parent child hbp edge ih =>
+  | refl => exact hab
+  | step hbp edge ih =>
       exact Ancestor.step ih edge
 
 /-- Each direct parent edge strictly increases rank in the forward direction. -/
@@ -98,8 +98,8 @@ theorem parent_edge_rank_lt (h : GitHistory) {p c : Oid}
 theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
     (ha : Ancestor h a d) : h.rank a ≤ h.rank d := by
   induction ha with
-  | refl x => exact Nat.le_refl _
-  | @step ancestor parent child hprev edge ih =>
+  | refl => exact Nat.le_refl _
+  | step hprev edge ih =>
       exact Nat.le_trans ih (Nat.le_of_lt (parent_edge_rank_lt h edge))
 
 /-- A non-reflexive ancestor path strictly increases rank. This rules out a
@@ -107,9 +107,9 @@ theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
 theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
     (ha : Ancestor h a d) (hne : a ≠ d) : h.rank a < h.rank d := by
   cases ha with
-  | refl x =>
+  | refl =>
       exact False.elim (hne rfl)
-  | @step ancestor parent child hprev edge =>
+  | step hprev edge =>
       exact Nat.lt_of_le_of_lt (ancestor_rank_le h hprev)
         (parent_edge_rank_lt h edge)
 
@@ -117,11 +117,12 @@ theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
     history cannot contain a nontrivial cycle. -/
 theorem ancestry_antisymmetric (h : GitHistory) {a b : Oid}
     (hab : Ancestor h a b) (hba : Ancestor h b a) : a = b := by
-  by_contra hne
-  have hlt₁ : h.rank a < h.rank b := ancestor_rank_lt_of_ne h hab hne
-  have hlt₂ : h.rank b < h.rank a :=
-    ancestor_rank_lt_of_ne h hba (Ne.symm hne)
-  exact (Nat.lt_asymm hlt₁ hlt₂)
+  by_cases hne : a = b
+  · exact hne
+  · have hlt₁ : h.rank a < h.rank b := ancestor_rank_lt_of_ne h hab hne
+    have hlt₂ : h.rank b < h.rank a :=
+      ancestor_rank_lt_of_ne h hba (Ne.symm hne)
+    exact (Nat.lt_irrefl (h.rank a) (Nat.lt_trans hlt₁ hlt₂)).elim
 
 /-- A commit is in the base-to-head range iff base is its ancestor and it
     is itself an ancestor of head. -/
@@ -156,9 +157,9 @@ theorem tree_refinement_along_ancestry (h : GitHistory)
     (baseCorrect : TreeEq (r.gitTree base) (r.pijulTree base)) :
     TreeEq (r.gitTree head) (r.pijulTree head) := by
   induction reach with
-  | refl _ => exact baseCorrect
-  | @step ancestor parent child previous edge ih =>
-      exact r.edgePreserves parent child edge ih
+  | refl => exact baseCorrect
+  | step hprev edge ih =>
+      exact r.edgePreserves _ _ edge ih
 
 /-! ## 2. Abstract change model and trust boundary -/
 
@@ -268,7 +269,7 @@ theorem Ledger.recordIfAbsent_idempotent (ledger : Ledger)
     different change. Exact duplicate writes remain accepted and idempotent. -/
 def Ledger.recordChecked (ledger : Ledger) (oid : Oid) (change : ChangeId) :
     Option Ledger :=
-  if h : ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change then
+  if ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) then
     none
   else
     some (ledger.recordIfAbsent oid change)
@@ -280,10 +281,13 @@ theorem Ledger.recordChecked_rejects_conflict (ledger : Ledger)
     (hEntry : (oid, existing) ∈ ledger.entries)
     (hDifferent : existing ≠ change) :
     ledger.recordChecked oid change = none := by
-  have hConflict :
-      ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change :=
-    ⟨existing, hEntry, hDifferent⟩
-  simp [Ledger.recordChecked, hConflict]
+  have hAny :
+      ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true := by
+    rw [List.any_eq_true]
+    refine ⟨(oid, existing), hEntry, ?_⟩
+    simp only [decide_eq_true]
+    exact ⟨rfl, hDifferent⟩
+  rw [Ledger.recordChecked, if_pos hAny]
 
 /-- If no conflicting association exists, the checked write returns the
     duplicate-suppressing update. This does not claim that the external
@@ -294,7 +298,20 @@ theorem Ledger.recordChecked_accepts_consistent (ledger : Ledger)
       ¬ ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change) :
     ledger.recordChecked oid change =
       some (ledger.recordIfAbsent oid change) := by
-  simp [Ledger.recordChecked, hNoConflict]
+  have hAny :
+      ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = false := by
+    cases hh :
+        ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) with
+    | false => rfl
+    | true =>
+        rw [List.any_eq_true] at hh
+        obtain ⟨pair, hmem, hp⟩ := hh
+        have hp' : pair.1 = oid ∧ pair.2 ≠ change := of_decide_eq_true hp
+        have hmem' : (oid, pair.2) ∈ ledger.entries := by
+          rw [← hp'.1]
+          exact hmem
+        exact (hNoConflict ⟨pair.2, hmem', hp'.2⟩).elim
+  rw [Ledger.recordChecked, if_neg (by simp [hAny])]
 
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
@@ -375,7 +392,8 @@ theorem imported_record_has_mapping (r : ImportRecord)
   | none =>
       simp [RecordWellFormed, hs, hm] at h
   | some change =>
-      exact ⟨change, hm⟩
+      refine ⟨change, ?_⟩
+      rw [← hm]
 
 /-! ## 6. Required correctness obligations (not yet proved)
 
