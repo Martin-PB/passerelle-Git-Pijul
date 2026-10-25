@@ -524,6 +524,32 @@ fn now_timestamp() -> String {
 
 
 #[cfg(test)]
+mod stable_base_channel_tests {
+    use super::{parent_state_channel, stable_base_channel_name};
+
+    #[test]
+    fn base_channel_name_is_stable_for_a_pinned_sha() {
+        assert_eq!(
+            stable_base_channel_name("0123456789abcdef"),
+            "base-0123456789abcdef"
+        );
+    }
+
+    #[test]
+    fn first_commit_uses_stable_base_for_parent_snapshot() {
+        let stable = "base-0123456789abcdef";
+        assert_eq!(
+            parent_state_channel("0123456789abcdef", "0123456789abcdef", stable),
+            stable
+        );
+        assert_eq!(
+            parent_state_channel("fedcba9876543210", "0123456789abcdef", stable),
+            "fedcba9876543210"
+        );
+    }
+}
+
+#[cfg(test)]
 mod bare_mirror_tests {
     use super::{git, git_status};
     use std::path::Path;
