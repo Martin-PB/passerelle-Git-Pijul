@@ -198,10 +198,10 @@ mod tests {
     #[test]
     fn unknown_status_sections_fail_closed_instead_of_reporting_clean() {
         for status in [
-            "On branch integration\\nFuture status section:\\n  item.txt\\n",
-            "On branch integration\\nChanges not understood by this parser\\n",
-            "On branch integration-old\\n",
-            "On branch integration\\nUnresolved conflicts:\\n  (fix conflicts and record the resolution)\\n",
+            "On branch integration\nFuture status section:\n  item.txt\n",
+            "On branch integration\nChanges not understood by this parser\n",
+            "On branch integration-old\n",
+            "On branch integration\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n",
         ] {
             assert_eq!(
                 parse_status_output(Path::new("."), status)
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn unknown_status_lines_after_conflict_heading_fail_closed() {
-        let status = "On branch integration\\nUnresolved conflicts:\\n  conflict.txt\\nUnexpected footer\\n";
+        let status = "On branch integration\nUnresolved conflicts:\n  conflict.txt\nUnexpected footer\n";
         assert_eq!(
             parse_status_output(Path::new("."), status)
                 .expect_err("unexpected trailing status text must be rejected")
