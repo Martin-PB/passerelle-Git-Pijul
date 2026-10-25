@@ -451,9 +451,9 @@ theorem observableTreeEq_trans {a b c : ObservableTree}
     semantics actually reports as conflicting. They are not inferred from Git
     conflict markers and are not a claim about business-level correctness. -/
 inductive NativeConflictOperation where
-  | apply
-  | commute
-  | merge
+  | applyChange
+  | commuteChanges
+  | mergeChanges
   deriving DecidableEq, Repr
 
 structure NativeConflict where
@@ -614,6 +614,20 @@ def SynchronizationIdempotent (sync : PlatformState → PlatformState)
 structure AutonomousWorkflows where
   gitStep : GitView → GitView → Prop
   pijulStep : PijulView → PijulView → Prop
+
+/-- One native Git step leaves the native Pijul view untouched. The ledger may
+    record the new Git-side state, but this predicate does not force immediate
+    synchronization or tree equality. -/
+def GitAutonomousStep (wf : AutonomousWorkflows)
+    (before after : PlatformState) : Prop :=
+  wf.gitStep before.git after.git ∧ after.pijul = before.pijul
+
+/-- One native Pijul step leaves the native Git view untouched. Native Pijul
+    changes may be added without manufacturing Git commits; synchronization
+    is a separate operation. -/
+def PijulAutonomousStep (wf : AutonomousWorkflows)
+    (before after : PlatformState) : Prop :=
+  wf.pijulStep before.pijul after.pijul ∧ after.git = before.git
 
 /-- Git bootstrap is based on the observable Git history, refs and trees only.
     This contract intentionally has no field for metadata unavailable from Git.
