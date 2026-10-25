@@ -357,6 +357,7 @@ pub fn translate_pr_from_mirror(
         git_mirror,
         &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
     )?;
+    let ledger_file = crate::ledger::ledger_path(pijul_repo.parent().unwrap_or(pijul_repo));
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
         // refer to channels it has already dropped. The retained PR tip is
@@ -387,25 +388,40 @@ pub fn translate_pr_from_mirror(
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
-        if !ledger.record(Entry {
-            git_sha: sha.to_owned(),
-            pijul_change: change,
-            pr: Some(pr.number),
-            direction: Direction::GitToPijul,
-            recorded_at: now_timestamp(),
-        }) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("Git SHA {sha} is already mapped to a different Pijul change"),
-            ));
-        }
+        record_mapping_and_checkpoint(
+            ledger,
+            Entry {
+                git_sha: sha.to_owned(),
+                pijul_change: change,
+                pr: Some(pr.number),
+                direction: Direction::GitToPijul,
+                recorded_at: now_timestamp(),
+            },
+            &ledger_file,
+        )?;
     }
 
     pull_channel_into(pijul_repo, &pr.head_sha, &pr_channel)?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
-    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
-    ledger.save(&crate::ledger::ledger_path(ledger_root))?;
+    ledger.save(&ledger_file)?;
     Ok(())
+}
+
+/// Record a completed SHA-to-change observation and checkpoint it immediately.
+/// This preserves earlier successful mappings if a later commit import fails.
+fn record_mapping_and_checkpoint(
+    ledger: &mut Ledger,
+    entry: Entry,
+    ledger_file: &Path,
+) -> std::io::Result<()> {
+    let git_sha = entry.git_sha.clone();
+    if !ledger.record(entry) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("Git SHA {git_sha} is already mapped to a different Pijul change or provenance"),
+        ));
+    }
+    ledger.save(ledger_file)
 }
 
 /// Translate one PR into a Pijul channel `pr-<n>`.
