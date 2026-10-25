@@ -47,6 +47,10 @@ pub struct ResolutionChange {
 /// The operator queue: exposed reports waiting for resolutions.
 /// v0 is an in-process Vec; p2 turns it into the persistent queue behind the
 /// CLI (and later web) console.
+///
+/// Receiving a resolution is not proof that Pijul accepted it or that a
+/// conflict disappeared. Pending reports are therefore cleared only after a
+/// caller re-runs Pijul triage and explicitly acknowledges the resolved path.
 #[derive(Debug, Default)]
 pub struct OperatorQueue {
     pub pending: Vec<ConflictReport>,
@@ -54,10 +58,25 @@ pub struct OperatorQueue {
 }
 
 impl OperatorQueue {
+    /// Record the submitted resolution without acknowledging any conflict.
+    /// Application and a fresh Pijul triage must succeed before a report can
+    /// be removed from the pending queue.
     pub fn submit(&mut self, resolution: ResolutionChange) {
         self.received.push(resolution);
-        if !self.pending.is_empty() {
-            self.pending.remove(0);
+    }
+
+    /// Remove one pending report after a fresh Pijul triage has confirmed that
+    /// the conflict at the supplied path is gone. Returns false if no such
+    /// report exists.
+    ///
+    /// This method deliberately does not run Pijul itself: callers must not
+    /// use it as an optimistic acknowledgement immediately after submit.
+    pub fn acknowledge_resolved(&mut self, path: &str) -> bool {
+        if let Some(index) = self.pending.iter().position(|report| report.path == path) {
+            self.pending.remove(index);
+            true
+        } else {
+            false
         }
     }
 }
