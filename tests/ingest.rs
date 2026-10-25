@@ -126,7 +126,7 @@ fn fetch_refs_accepts_hosting_agnostic_ref_mappings() {
 }
 
 #[test]
-fn fetch_refs_rejects_non_ref_destinations() {
+fn fetch_refs_rejects_non_ref_destinations_before_creating_mirror() {
     let source = tempfile::tempdir().unwrap();
     run_git(source.path(), &["init", "-b", "main"]);
     commit(source.path(), "synthetic main");
@@ -136,4 +136,58 @@ fn fetch_refs_rejects_non_ref_destinations() {
     let err = ingest::fetch_refs(source.path().to_str().unwrap(), &refs, &mirror)
         .expect_err("destination must be a Git ref");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!mirror.exists(), "invalid mappings must not create a mirror");
+}
+
+#[test]
+fn fetch_refs_rejects_duplicate_destinations_before_fetching() {
+    let source = tempfile::tempdir().unwrap();
+    run_git(source.path(), &["init", "-b", "main"]);
+    commit(source.path(), "synthetic main");
+
+    let mirror = source.path().join("generic-mirror");
+    let destination = "refs/remotes/base/main".to_owned();
+    let refs = [
+        ("refs/heads/main".to_owned(), destination.clone()),
+        ("refs/heads/main".to_owned(), destination),
+    ];
+    let err = ingest::fetch_refs(source.path().to_str().unwrap(), &refs, &mirror)
+        .expect_err("duplicate destinations must be rejected before fetching");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(err.to_string().contains("duplicate destination"));
+    assert!(!mirror.exists(), "invalid mappings must not create a mirror");
+}
+
+#[test]
+fn fetch_refs_rejects_malformed_source_refs_before_creating_mirror() {
+    let source = tempfile::tempdir().unwrap();
+    run_git(source.path(), &["init", "-b", "main"]);
+    commit(source.path(), "synthetic main");
+
+    let mirror = source.path().join("generic-mirror");
+    let refs = [("refs/heads/../main".to_owned(), "refs/remotes/base/main".to_owned())];
+    let err = ingest::fetch_refs(source.path().to_str().unwrap(), &refs, &mirror)
+        .expect_err("malformed source refs must be rejected");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!mirror.exists(), "invalid mappings must not create a mirror");
+}
+
+#[test]
+fn fetch_prs_rejects_short_head_refs_before_creating_mirror() {
+    let source = tempfile::tempdir().unwrap();
+    run_git(source.path(), &["init", "-b", "main"]);
+    commit(source.path(), "synthetic main");
+
+    let mirror = source.path().join("mirror");
+    let prs = [PullRequest {
+        number: 10,
+        title: "short ref".into(),
+        author: "corpus".into(),
+        head_sha: String::new(),
+        head_ref: "main".into(),
+    }];
+    let err = ingest::fetch_prs(source.path().to_str().unwrap(), &prs, &mirror)
+        .expect_err("head refs must be fully qualified");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!mirror.exists(), "invalid head ref must not create a mirror");
 }
