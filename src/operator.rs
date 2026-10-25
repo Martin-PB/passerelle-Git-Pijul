@@ -211,7 +211,7 @@ fn append_audit(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_audit, apply_resolution};
+    use super::{append_audit, apply_resolution, apply_resolution_and_verify};
     use std::path::Path;
 
     #[test]
@@ -232,6 +232,18 @@ mod tests {
         assert_eq!(first["event"], "resolution-attempted");
         assert_eq!(second["event"], "resolution-applied");
         assert_eq!(second["note"], "keep both");
+    }
+
+    #[test]
+    fn empty_conflict_path_is_rejected_before_running_pijul() {
+        let error = apply_resolution_and_verify(
+            Path::new("/nonexistent-workdir"),
+            "   ",
+            "ABC123",
+            None,
+        )
+        .expect_err("an empty conflict path must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]
