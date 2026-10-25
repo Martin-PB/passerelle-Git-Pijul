@@ -418,7 +418,7 @@ fn record_mapping_and_checkpoint(
     if !ledger.record(entry) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
-            format!("Git SHA {git_sha} is already mapped to a different Pijul change or provenance"),
+            format!("Git SHA {git_sha} is already mapped to a different Pijul change"),
         ));
     }
     ledger.save(ledger_file)
