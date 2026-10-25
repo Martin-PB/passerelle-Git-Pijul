@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// An advisory exclusive lock held for as long as this value is alive.
+#[derive(Debug)]
 pub struct WorkspaceLock {
     _file: File,
     path: PathBuf,
@@ -36,7 +37,7 @@ impl WorkspaceLock {
             .unwrap_or_else(|| std::ffi::OsStr::new("git-mirror"))
             .to_string_lossy();
         fs::create_dir_all(parent)?;
-        Self::acquire(&parent.join(format!(".{name}.lock")))
+        Self::acquire(&parent.join(format!("{name}.lock")))
     }
 
     fn acquire(path: &Path) -> io::Result<Self> {
@@ -44,6 +45,7 @@ impl WorkspaceLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
         file.try_lock_exclusive().map_err(|error| {
             if error.kind() == io::ErrorKind::WouldBlock {
