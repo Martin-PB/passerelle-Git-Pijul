@@ -40,11 +40,14 @@ impl Ledger {
             return Ok(Self::default());
         }
         let raw = std::fs::read_to_string(path)?;
-        serde_json::from_str(&raw)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        let ledger: Self = serde_json::from_str(&raw)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        ledger.validate()?;
+        Ok(ledger)
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        self.validate()?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
@@ -53,18 +56,47 @@ impl Ledger {
         std::fs::write(path, raw)
     }
 
-    /// Record a translation. Returns false if this SHA was already ledged
-    /// with a DIFFERENT change hash, i.e. the Git side moved under us
-    /// (force-push detection).
+    /// Record an immutable Git-SHA mapping. Returns false for invalid entries
+    /// or when a replay changes the Pijul hash, PR attribution, or direction.
+    /// The timestamp is intentionally ignored for idempotent re-records.
     pub fn record(&mut self, entry: Entry) -> bool {
+        if entry.git_sha.trim().is_empty() || entry.pijul_change.trim().is_empty() {
+            return false;
+        }
         match self.by_sha.get(&entry.git_sha) {
-            Some(existing) if existing.pijul_change != entry.pijul_change => false,
-            Some(_) => true, // idempotent re-record
+            Some(existing)
+                if existing.pijul_change != entry.pijul_change
+                    || existing.pr != entry.pr
+                    || existing.direction != entry.direction =>
+            {
+                false
+            }
+            Some(_) => true,
             None => {
                 self.by_sha.insert(entry.git_sha.clone(), entry);
                 true
             }
         }
+    }
+
+    /// Validate the serialized key-to-entry identity and required mapping
+    /// fields before the ledger is consumed or persisted.
+    pub fn validate(&self) -> std::io::Result<()> {
+        for (key, entry) in &self.by_sha {
+            if key.trim().is_empty()
+                || entry.git_sha.trim().is_empty()
+                || key != &entry.git_sha
+                || entry.pijul_change.trim().is_empty()
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "invalid ledger entry at key {key:?}: key must match a non-empty git_sha and pijul_change must be non-empty"
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn get(&self, git_sha: &str) -> Option<&Entry> {
