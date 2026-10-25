@@ -52,7 +52,7 @@ impl Ledger {
     /// into place. A process crash during serialization/write must not truncate
     /// the last complete ledger, which is the import idempotence checkpoint.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
+        if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
         let raw = serde_json::to_vec_pretty(self)
