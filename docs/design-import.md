@@ -284,7 +284,7 @@ Conséquences :
   supprimé. Un nouvel appel `pijul git <autre-clone> <même-dépôt-pijul>` peut
   alors retrouver l'OID dans le cache sans retrouver le channel attendu.
 - La réexécution d'un import à partir de la base originale pose le même risque.
-  Le ledger et les channels nommés `pr-N`/`integration` ne suffisent pas à
+  Le ledger et les channels nommés `pr-N`/ `integration` ne suffisent pas à
   recréer les channels OID supprimés.
 
 **Décision de sûreté :** ne pas annoncer le pipeline multi-PR comme fonctionnel.
@@ -319,7 +319,7 @@ Source versionnée : https://docs.rs/crate/pijul/1.0.0-beta.24/source/src/comman
 
 La remarque suivante change l'orientation du spike : le miroir Git complet contient
 bien les données sources nécessaires pour rejouer l'historique commit par commit
-(parent(s), tree, blobs, identités, horodatage et messages). Il n'est donc pas
+(parent(s), tree, blobs, identités, horodatages et messages). Il n'est donc pas
 nécessaire de dépendre de la persistance des channels OID pour **connaître le
 graphe Git** ou reconstruire les deltas de fichiers. En revanche, un `git diff`
 ne constitue pas à lui seul un `change` Pijul : le hash et les dépendances Pijul
@@ -458,7 +458,7 @@ Si la passerelle appelle `pijul git` et suppose que celui-ci produit les bons ch
 - remplacer le chemin critique par un cœur dont l'implémentation et la spécification peuvent être reliées par une preuve ;
 - ou expliciter et réduire la frontière de confiance à une API Pijul étroite, dont le contrat est lui-même vérifié et dont les hypothèses ne sont pas présentées comme des théorèmes.
 
-Réimplémenter à la main le format interne des changes à partir de diffs Git serait une mauvaise réponse : cela déplace le problème sans fournir une preuve.
+Réimplémenter à la main le format interne des changes à partir de diffs Git serait une mauvaise réponse : cela déplace le problème sans fournir de preuve.
 
 ### Plan de travail
 
@@ -552,7 +552,7 @@ dans le modèle de données. Cela ne prouve ni l'idempotence de la commande
 `pijul git`, ni le comportement d'une nouvelle importation, ni le rejet
 d'une association contradictoire où un même OID serait lié à un autre change.
 La fonctionnalité reste à compiler avec `lake build Bridge`; aucune preuve
-Lean n'est considérée comme vérifiée avant cette compilation.
+Lean n'est considérée vérifiée avant cette compilation.
 
 ### Test d'intégration ajouté — branches sœurs puis rerun
 
