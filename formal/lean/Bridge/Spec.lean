@@ -398,3 +398,256 @@ No end-to-end correctness theorem is claimed in this file.
 -/
 
 end PijulBridge
+
+/-! ## 7. Platform-level Git ↔ Pijul contract (definition layer)
+
+These definitions refine the synthetic P0 criterion into a platform contract.
+They are intentionally abstract: they define what a correct bridge must
+preserve, not what the current Rust importer or upstream Pijul CLI already
+satisfies. In particular, no conflict-resolution behavior is assumed of Pijul.
+
+The path type `Path` is a canonicalized path identity. Observable entries use
+bytes and file kind rather than comparing Git blob IDs with Pijul internals.
+Gitlinks/submodules are represented explicitly so a concrete implementation
+must either support them or state a narrower supported-tree precondition.
+-/
+
+/-- The observable kind and payload of a path in a materialized repository.
+    Symlink payload is the target's byte sequence; gitlink payload is the
+    referenced Git commit identity. -/
+inductive ObservableEntry where
+  | file (bytes : List UInt8) (executable : Bool)
+  | symlink (targetBytes : List UInt8)
+  | gitlink (target : Oid)
+  deriving DecidableEq, Repr
+
+/-- A normalized, materialized tree. Directory entries are implicit in paths;
+    a concrete adapter must define path normalization and platform-specific
+    metadata policy. -/
+abbrev ObservableTree := Path → Option ObservableEntry
+
+def ObservableTreeEq (a b : ObservableTree) : Prop :=
+  ∀ path, a path = b path
+
+theorem observableTreeEq_refl (tree : ObservableTree) :
+    ObservableTreeEq tree tree := by
+  intro path
+  rfl
+
+theorem observableTreeEq_symm {a b : ObservableTree}
+    (h : ObservableTreeEq a b) : ObservableTreeEq b a := by
+  intro path
+  exact (h path).symm
+
+theorem observableTreeEq_trans {a b c : ObservableableTree}
+    (hab : ObservableTreeEq a b) (hbc : ObservableTreeEq b c) :
+    ObservableTreeEq a c := by
+  intro path
+  exact Eq.trans (hab path) (hbc path)
+
+/-- Native conflict classes are labels for operations that the selected Pijul
+    semantics actually reports as conflicting. They are not inferred from Git
+    conflict markers and are not a claim about business-level correctness. -/
+inductive NativeConflictOperation where
+  | apply
+  | commute
+  | merge
+  deriving DecidableEq, Repr
+
+structure NativeConflict where
+  leftChange : ChangeId
+  rightChange : ChangeId
+  operation : NativeConflictOperation
+  deriving DecidableEq, Repr
+
+/-- A semantic view of Git. The observation function is deliberately separate
+    from the earlier hash-based GitTree model. -/
+structure GitView where
+  history : GitHistory
+  tip : Oid
+  treeAt : Oid → ObservableTree
+  ref : Nat → Option Oid
+
+/-- A semantic view of Pijul at one selected state. Dependencies are oriented
+    as (change, prerequisite). The native conflict list is the result of a
+    specified Pijul operation, not a generic property of a repository. -/
+structure PijulView where
+  changes : List ChangeId
+  dependsOn : ChangeId → ChangeId → Prop
+  tree : ObservableTree
+  nativeConflicts : List NativeConflict
+
+/-- Cross-system provenance is a relation, not a bijection. This deliberately
+    permits distinct native histories and avoids assuming that a Git commit
+    and a Pijul change have identical identity or cardinality. -/
+structure BridgeLedger where
+  links : Oid → ChangeId → Prop
+  importedCommit : Oid → Prop
+  requiresChangeMapping : Oid → Prop
+  bridgeCreatedChange : ChangeId → Prop
+
+structure PlatformState where
+  git : GitView
+  pijul : PijulView
+  ledger : BridgeLedger
+
+/-- Every recorded provenance link refers to an existing Git commit and a
+    change present in the selected Pijul view. -/
+def MappingSound (s : PlatformState) : Prop :=
+  ∀ oid change, s.ledger.links oid change →
+    (∃ commit, s.git.history.commit oid = some commit) ∧
+    change ∈ s.pijul.changes
+
+/-- Every imported commit that the translation contract says requires a
+    change mapping has at least one mapping. Empty/metadata-only commits may
+    set requiresChangeMapping to false; their handling must still be specified
+    by the concrete adapter if their metadata/topology matters. -/
+def MappingCoverage (s : PlatformState) : Prop :=
+  ∀ oid, s.ledger.importedCommit oid →
+    s.ledger.requiresChangeMapping oid →
+    ∃ change, s.ledger.links oid change
+
+/-- Every change created by the bridge has traceable Git provenance. Native
+    Pijul changes are not required to link to Git commits. -/
+def BridgeChangeTraceability (s : PlatformState) : Prop :=
+  ∀ change, s.ledger.bridgeCreatedChange change →
+    ∃ oid, s.ledger.links oid change
+
+/-- Dependency closure for the selected Pijul state: a selected change cannot
+    refer to a prerequisite that is absent from that state. -/
+def DependencyClosed (p : PijulView) : Prop :=
+  ∀ change prerequisite, change ∈ p.changes →
+    p.dependsOn change prerequisite → prerequisite ∈ p.changes
+
+/-- Human arbitration is required exactly when the specified Pijul operation
+    reports at least one native conflict. There is no external semantic
+    conflict detector in this contract. -/
+def ArbitrationRequired (p : PijulView) : Prop :=
+  p.nativeConflicts ≠ []
+
+/-- A conflict scenario pairs a concrete Git merge attempt with a concrete
+    Pijul operation over the corresponding concurrent work. It records the
+    outcomes separately: there is no axiom that their conflict booleans agree. -/
+structure ConflictScenario where
+  base : Oid
+  leftTip : Oid
+  rightTip : Oid
+  gitMergeReportedConflict : Bool
+  pijulConflicts : List NativeConflict
+  pijulMaterializedTree : ObservableTree
+
+/-- A Git merge conflict has been handled without arbitration only when the
+    paired Pijul operation reports no native conflict. This is a classification
+    predicate, not a theorem that such a Pijul operation always exists. -/
+def GitConflictHandledByPijul (scenario : ConflictScenario) : Prop :=
+  scenario.gitMergeReportedConflict = true ∧ scenario.pijulConflicts = []
+
+/-- The arbitration signal for a scenario is determined solely by native
+    Pijul conflicts. Git's conflict result alone never triggers arbitration. -/
+def ScenarioRequiresArbitration (scenario : ConflictScenario) : Prop :=
+  scenario.pijulConflicts ≠ []
+
+/-- The state is coherent at a quiescent synchronization point when the
+    materialized trees agree (under the normalized observation relation) and
+    cross-system provenance, dependency closure, and bridge-change traceability
+    hold. An unresolved native conflict makes this state non-quiescent and is
+    handled by the separate pending-arbitration predicate below. -/
+def CoherentCheckpoint (s : PlatformState) : Prop :=
+  ObservableTreeEq (s.git.treeAt s.git.tip) s.pijul.tree ∧
+  MappingSound s ∧
+  MappingCoverage s ∧
+  BridgeChangeTraceability s ∧
+  DependencyClosed s.pijul ∧
+  s.pijul.nativeConflicts = []
+
+/-- A conflict-bearing state is a valid pending-arbitration state when its
+    provenance and dependency invariants remain valid. Its materialized trees
+    are not claimed equivalent until resolution and a later checkpoint. -/
+def PendingArbitration (s : PlatformState) : Prop :=
+  s.pijul.nativeConflicts ≠ [] ∧
+  MappingSound s ∧
+  MappingCoverage s ∧
+  BridgeChangeTraceability s ∧
+  DependencyClosed s.pijul
+
+/-- Platform coherence permits either a quiescent synchronized checkpoint or
+    an explicitly pending native Pijul arbitration. It does not classify
+    silent semantic incompatibilities as conflicts; those are out of scope. -/
+def PlatformCoherent (s : PlatformState) : Prop :=
+  CoherentCheckpoint s ∨ PendingArbitration s
+
+/-- The repositories retain independent native histories. This predicate
+    records that no identity equality between their history/change identifiers
+    is required; cross-system links are represented only by the ledger relation.
+    It is a design constraint rather than a runtime equality test. -/
+def HistoriesAreNotIdentified (s : PlatformState) : Prop :=
+  ∀ oid change, s.ledger.links oid change →
+    (∃ commit, s.git.history.commit oid = some commit) ∧
+    change ∈ s.pijul.changes
+
+/-! ## 8. Required simulation laws (definitions of proof targets)
+
+The following predicates make the remaining proof obligations precise.
+They do not yet quantify over concrete Rust executions; a refinement theorem
+must connect each concrete operation to these abstract transitions.
+-/
+
+/-- A successful synchronization must end at a coherent checkpoint. A
+    conflict-bearing synchronization must instead expose a pending native
+    Pijul arbitration. -/
+def SynchronizationCorrect (before after : PlatformState) : Prop :=
+  PlatformCoherent after
+
+/-- Idempotence is stated over abstract platform observations: running the same
+    synchronization twice must not change the resulting selected trees,
+    provenance relation, or conflict observation. This avoids demanding
+    identical internal allocation or native history representation. -/
+def SamePlatformObservation (a b : PlatformState) : Prop :=
+  ObservableTreeEq (a.git.treeAt a.git.tip) (b.git.treeAt b.git.tip) ∧
+  ObservableTreeEq a.pijul.tree b.pijul.tree ∧
+  (∀ oid change, a.ledger.links oid change ↔ b.ledger.links oid change) ∧
+  a.pijul.nativeConflicts = b.pijul.nativeConflicts
+
+def SynchronizationIdempotent (sync : PlatformState → PlatformState)
+    (s : PlatformState) : Prop :=
+  SamePlatformObservation (sync (sync s)) (sync s)
+
+/-- A Git-only or Pijul-only workflow may advance its native repository without
+    requiring the other system's native history to be rewritten. The concrete
+    implementation must define how divergence is represented until the next
+    synchronization; autonomy does not mean the two views remain synchronized
+    after every unilateral edit. -/
+structure AutonomousWorkflows where
+  gitStep : GitView → GitView → Prop
+  pijulStep : PijulView → PijulView → Prop
+
+/-- Git bootstrap is based on the observable Git history, refs and trees only.
+    This contract intentionally has no field for metadata unavailable from Git.
+    A concrete bootstrap must either satisfy the stated mapping obligations or
+    reject/report cases for which its supported input contract is insufficient. -/
+def BootstrapUsesGitObservableData (source : GitView) (target : PlatformState) : Prop :=
+  target.git.history = source.history ∧
+  target.git.tip = source.tip ∧
+  target.git.ref = source.ref
+
+/-! ## 9. Theorems still required (not asserted here)
+
+The eventual bridge theorem should prove, for every supported Git history and
+every allowed sequence of Git/Pijul work:
+1. bootstrap only uses observable Git data and either succeeds soundly or
+   fails explicitly;
+2. each successful translation preserves normalized tree observations;
+3. provenance is sound and complete for commits requiring a change mapping;
+4. Pijul dependency closure and native conflict observations are preserved;
+5. a Git-reported merge conflict is resolved without arbitration only when the
+   paired Pijul operation is conflict-free; otherwise native Pijul conflicts
+   are surfaced for arbitration;
+6. synchronization is idempotent at the observation level and publishes no
+   invalid partial state;
+7. either ecosystem can continue independently, with divergence allowed
+   between synchronization points.
+
+None of these end-to-end properties follows from the definitions alone.
+The actual Pijul operation semantics and the Rust implementation must be
+connected to these predicates; tests and the CLI exit status are not proofs.
+-/
