@@ -143,6 +143,14 @@ pub fn apply_resolution_and_verify(
             "resolution requires the exact conflict path shown by operator queue",
         ));
     }
+    if change_hash.trim().is_empty()
+        || !change_hash.chars().all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "resolution change hash must be a non-empty alphanumeric hash or prefix",
+        ));
+    }
 
     let pijul_repo = workdir.join("pijul");
     let before = crate::triage::triage_integration_channel(&pijul_repo)?;
