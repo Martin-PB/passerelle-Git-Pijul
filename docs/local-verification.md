@@ -1,15 +1,15 @@
 # Protocole de vérification locale Linux
 
-Ce protocole est la référence pour vérifier la branche `agent/p0-synthetic-roundtrip` de la passerelle Git–Pijul. Il ne déclenche **aucune GitHub Action**, ne pousse rien et ne modifie pas le code source pendant l'exécution.
+Ce protocole est la référence pour vérifier la branche `agent/p1-explicit-integration-test-status` de la passerelle Git–Pijul. Il ne déclenche **aucune GitHub Action**, ne pousse rien et ne modifie pas le code source pendant l'exécution.
 
 ## 1. Récupérer exactement la branche à vérifier
 
 Depuis un clone du dépôt :
 
 ```sh
-git fetch origin agent/p0-synthetic-roundtrip
-git switch agent/p0-synthetic-roundtrip
-git pull --ff-only origin agent/p0-synthetic-roundtrip
+git fetch origin agent/p1-explicit-integration-test-status
+git switch agent/p1-explicit-integration-test-status
+git pull --ff-only origin agent/p1-explicit-integration-test-status
 git status --short --branch
 git rev-parse HEAD
 ```
