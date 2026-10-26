@@ -81,7 +81,7 @@ fn ledger_load_rejects_inconsistent_or_empty_mappings() {
     let path = ledger_path(dir.path());
     let invalid_ledgers = [
         r#"{"lookup-key":{"git_sha":"different-sha","pijul_change":"change-one","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
-        r#"{"sha-one":{"git_sha":"sha-one","pijul_change":"","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
+        r#"{"0123456789abcdef0123456789abcdef01234567":{"git_sha":"0123456789abcdef0123456789abcdef01234567","pijul_change":"","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
     ];
 
     for raw in invalid_ledgers {
