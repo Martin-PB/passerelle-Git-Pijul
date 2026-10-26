@@ -63,6 +63,71 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
     parse_status_output(workdir, &status)
 }
 
+/// Read a reported path only when every existing path component is a
+/// non-symlink directory and the final component is a regular file. This
+/// prevents conflict paths from traversing symlinks into data outside the
+/// Pijul working copy. It is not a defence against a hostile concurrent
+/// process replacing components between checks and the final read.
+fn read_reported_file(workdir: &Path, relative: &Path) -> String {
+    let Ok(root) = workdir.canonicalize() else {
+        return "Pijul reported a conflict, but the repository root could not be resolved; content was not read."
+            .into();
+    };
+    let components: Vec<_> = relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_owned()),
+            Component::CurDir => None,
+            _ => Some(std::ffi::OsString::new()),
+        })
+        .collect();
+    if components.is_empty() || components.iter().any(|part| part.is_empty()) {
+        return "Pijul reported a conflict at a non-relative or empty path; content was not read."
+            .into();
+    }
+
+    let mut current = root.clone();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component);
+        let metadata = match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                return "Pijul reported a conflict path that is unavailable; content was not read."
+                    .into();
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            return "Pijul reported a conflict path traversing a symbolic link; content was not read."
+                .into();
+        }
+        if index + 1 < components.len() {
+            if !metadata.is_dir() {
+                return "Pijul reported a conflict path with a non-directory parent; content was not read."
+                    .into();
+            }
+        } else if !metadata.is_file() {
+            return "Pijul reported a conflict path that is not a regular file; content was not read."
+                .into();
+        }
+    }
+
+    let resolved = match current.canonicalize() {
+        Ok(path) => path,
+        Err(_) => {
+            return "Pijul reported a conflict path that could not be resolved; content was not read."
+                .into();
+        }
+    };
+    if !resolved.starts_with(&root) {
+        return "Pijul reported a conflict path outside the repository; content was not read."
+            .into();
+    }
+    std::fs::read_to_string(resolved).unwrap_or_else(|_| {
+        "Pijul reported a conflict path that is binary or unreadable; content was not read."
+            .into()
+    })
+}
+
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
     fn invalid(message: impl Into<String>) -> std::io::Error {
         std::io::Error::new(std::io::ErrorKind::InvalidData, message.into())
@@ -146,19 +211,9 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
             matches!(component, Component::Normal(_) | Component::CurDir)
         });
         let conflict_state = if safe {
-            let file = workdir.join(relative);
-            match std::fs::symlink_metadata(&file) {
-                Ok(metadata) if metadata.file_type().is_file() => {
-                    std::fs::read_to_string(&file).unwrap_or_else(|_| {
-                        "Pijul reported a conflict; file is binary, unreadable, or unavailable."
-                            .into()
-                    })
-                }
-                _ => "Pijul reported a conflict; path is not a regular file, so content was not read."
-                    .into(),
-            }
+            read_reported_file(workdir, relative)
         } else {
-            "Pijul reported a conflict at a non-relative path; content not read.".into()
+            "Pijul reported a conflict at a non-relative path; content was not read.".into()
         };
         reports.push(Triage::Operator {
             report: ConflictReport {
@@ -231,6 +286,29 @@ mod tests {
             parse_status_output(Path::new("."), status).unwrap().as_slice(),
             [Triage::Clean]
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn conflict_path_cannot_read_through_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().expect("repository root");
+        let outside = tempfile::tempdir().expect("outside directory");
+        std::fs::write(outside.path().join("secret.txt"), "outside-secret-content")
+            .expect("write outside file");
+        symlink(outside.path(), root.path().join("linked-dir")).expect("create symlink");
+
+        let status = "On branch integration\n\nUnresolved conflicts:\n    linked-dir/secret.txt\n";
+        let result = parse_status_output(root.path(), status).unwrap();
+        match &result[0] {
+            Triage::Operator { report } => {
+                assert_eq!(report.path, "linked-dir/secret.txt");
+                assert!(!report.conflict_state.contains("outside-secret-content"));
+                assert!(report.conflict_state.contains("symbolic link"));
+            }
+            other => panic!("expected operator triage, got {other:?}"),
+        }
     }
 
     #[test]
