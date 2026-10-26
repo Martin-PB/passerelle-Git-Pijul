@@ -362,6 +362,20 @@ pub fn translate_pr_from_mirror(
         .values()
         .any(|entry| entry.direction == Direction::GitToPijul);
 
+    // On a fresh workspace the Pijul repository does not exist yet, so
+    // querying its channels would fail before the base import can initialize it.
+    // Bootstrap from the pinned base first; never silently recreate a repository
+    // when the ledger says imports already exist.
+    if !pijul_repo.exists() {
+        if has_any_import {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Pijul repository is missing although the ledger contains prior imports; refusing unsafe reinitialization",
+            ));
+        }
+        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+    }
+
     let mut channels = list_channels(pijul_repo)?;
     if channels
         .iter()
