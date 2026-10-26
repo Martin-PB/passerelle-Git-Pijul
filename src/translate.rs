@@ -297,6 +297,12 @@ fn stable_base_channel_name(base_sha: &str) -> String {
     format!("base-{base_sha}")
 }
 
+/// Stable snapshots preserve imported state when pijul git removes the
+/// corresponding OID-named channel while importing a child commit.
+fn stable_commit_channel_name(git_sha: &str) -> String {
+    format!("git-{git_sha}")
+}
+
 /// The first commit in a PR may have a parent OID channel that a prior import
 /// removed. Use the retained stable base channel for that one snapshot.
 fn parent_state_channel<'a>(
@@ -383,6 +389,20 @@ pub fn translate_pr_from_mirror(
         .values()
         .any(|entry| entry.direction == Direction::GitToPijul);
 
+    // On a fresh workspace the Pijul repository does not exist yet, so
+    // querying its channels would fail before the base import can initialize it.
+    // Bootstrap from the pinned base first; never silently recreate a repository
+    // when the ledger says imports already exist.
+    if !pijul_repo.exists() {
+        if has_any_import {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Pijul repository is missing although the ledger contains prior imports; refusing unsafe reinitialization",
+            ));
+        }
+        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+    }
+
     let mut channels = list_channels(pijul_repo)?;
     if channels
         .iter()
@@ -408,7 +428,6 @@ pub fn translate_pr_from_mirror(
                 ));
             }
             import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-            channels = list_channels(pijul_repo)?;
         }
         ensure_channel_from(pijul_repo, &base.sha, &base_channel)?;
         channels = list_channels(pijul_repo)?;
@@ -481,10 +500,22 @@ pub fn translate_pr_from_mirror(
         }
         let parent_sha = parts[1];
         let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
+        let parent_snapshot = if parent_sha == base.sha {
+            base_channel.clone()
+        } else {
+            stable_commit_channel_name(parent_sha)
+        };
+        // pijul git resolves a commit's parent by its Git-OID channel name.
+        // beta.24 may remove that channel after importing a child, so restore
+        // it from the durable snapshot before every import.
+        ensure_channel_from(pijul_repo, &parent_snapshot, parent_sha)?;
         let before = changes_on_channel(pijul_repo, parent_channel)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
+        // Preserve this commit's state before a later child import can remove
+        // its OID-named channel.
+        ensure_channel_from(pijul_repo, sha, &stable_commit_channel_name(sha))?;
         if !ledger.record(Entry {
             git_sha: sha.to_owned(),
             pijul_change: change,
