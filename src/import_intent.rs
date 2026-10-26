@@ -57,6 +57,41 @@ impl ImportIntentStore {
         Ok(self.root.join(format!("{git_sha}.json")))
     }
 
+    /// Read every pending intent in the workspace. A pending intent for a
+    /// different SHA is still relevant: it may describe an earlier mutation
+    /// whose result was never committed to the ledger.
+    pub fn pending_intents(&self) -> io::Result<Vec<ImportIntent>> {
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut intents = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let git_sha = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .ok_or_else(|| io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "import intent filename is not valid UTF-8",
+                ))?;
+            let intent = self.load(git_sha)?.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("import intent {git_sha:?} disappeared while being read"),
+                )
+            })?;
+            intents.push(intent);
+        }
+        intents.sort_by(|left, right| left.git_sha.cmp(&right.git_sha));
+        Ok(intents)
+    }
+
     pub fn load(&self, git_sha: &str) -> io::Result<Option<ImportIntent>> {
         let path = self.path_for(git_sha)?;
         let mut file = match OpenOptions::new().read(true).open(&path) {
