@@ -80,7 +80,7 @@ fn read_reported_file(workdir: &Path, relative: &Path) -> String {
         .filter_map(|component| match component {
             Component::Normal(part) => Some(part.to_owned()),
             Component::CurDir => None,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+            _ => {
                 // Reject the whole path rather than trying to normalize it.
                 Some(std::ffi::OsString::new())
             }
