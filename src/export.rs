@@ -363,15 +363,15 @@ mod tests {
     #[test]
     fn export_status_guard_recognizes_pijul_beta24_dirty_heading() {
         assert!(super::status_has_unrecorded_work(
-            "On channel: integration\\n\\nChanges not recorded:\\n        modified file.txt\\n"
+            "On channel: integration\n\nChanges not recorded:\n        modified file.txt\n"
         ));
         assert!(super::status_has_unrecorded_work(
-            "On channel: integration\\n\\nUntracked files:\\n        new.txt\\n"
+            "On channel: integration\n\nUntracked files:\n        new.txt\n"
         ));
         assert!(super::status_has_unrecorded_work(
-            "On channel: integration\\n\\nUnresolved conflicts:\\n        file.txt\\n"
+            "On channel: integration\n\nUnresolved conflicts:\n        file.txt\n"
         ));
-        assert!(!super::status_has_unrecorded_work("On channel: integration\\n"));
+        assert!(!super::status_has_unrecorded_work("On channel: integration\n"));
     }
 
     #[test]
