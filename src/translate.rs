@@ -877,6 +877,103 @@ mod pinned_commit_tests {
 }
 
 #[cfg(test)]
+mod pending_intent_preflight_tests {
+    use super::translate_pr_from_mirror;
+    use crate::import_intent::{ImportIntent, ImportIntentStore};
+    use crate::ledger::Ledger;
+    use crate::{Base, PullRequest};
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git must be installed for pending-intent preflight tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn unrelated_unresolved_intent_blocks_before_pijul_repository_initialization() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let work = root.path().join("git-work");
+        let mirror = root.path().join("mirror.git");
+        let workspace = root.path().join("workspace");
+        let pijul_repo = workspace.join("pijul");
+        let scratch = workspace.join("scratch");
+        std::fs::create_dir_all(&work).expect("create Git worktree");
+        std::fs::create_dir_all(&workspace).expect("create gateway workspace");
+        run_git(root.path(), &["init", "--bare", mirror.to_str().unwrap()]);
+        run_git(&work, &["init", "-b", "main"]);
+        run_git(&work, &["config", "user.name", "Synthetic Test"]);
+        run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(work.join("base.txt"), "base\n").expect("write base file");
+        run_git(&work, &["add", "base.txt"]);
+        run_git(&work, &["commit", "-m", "base"]);
+        let base_sha = run_git(&work, &["rev-parse", "HEAD"]);
+
+        run_git(&work, &["checkout", "-b", "other"]);
+        std::fs::write(work.join("other.txt"), "other\n").expect("write unrelated file");
+        run_git(&work, &["add", "other.txt"]);
+        run_git(&work, &["commit", "-m", "unrelated commit"]);
+        let unrelated_sha = run_git(&work, &["rev-parse", "HEAD"]);
+
+        run_git(&work, &["checkout", "main"]);
+        std::fs::write(work.join("head.txt"), "head\n").expect("write PR file");
+        run_git(&work, &["add", "head.txt"]);
+        run_git(&work, &["commit", "-m", "PR head"]);
+        let head_sha = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(
+            &work,
+            &["push", mirror.to_str().unwrap(), "main", "other"],
+        );
+
+        ImportIntentStore::new(&workspace)
+            .begin(&ImportIntent {
+                git_sha: unrelated_sha,
+                parent_sha: base_sha.clone(),
+                base_sha: base_sha.clone(),
+                pr: 999,
+                pijul_change: None,
+            })
+            .expect("persist unrelated pending intent");
+
+        let error = translate_pr_from_mirror(
+            &mirror,
+            &pijul_repo,
+            &scratch,
+            &Base {
+                branch: "main".into(),
+                sha: base_sha,
+            },
+            &PullRequest {
+                number: 42,
+                title: "synthetic PR".into(),
+                author: "test".into(),
+                head_sha,
+                head_ref: "refs/heads/main".into(),
+            },
+            &mut Ledger::default(),
+        )
+        .expect_err("an unrelated unresolved intent must quarantine the workspace");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(error.to_string().contains("unresolved import intent"));
+        assert!(
+            !pijul_repo.exists(),
+            "the pending-intent check must run before initializing Pijul"
+        );
+    }
+}
+
+#[cfg(test)]
 mod bare_mirror_tests {
     use super::{git, git_status};
     use std::path::Path;
@@ -907,7 +1004,7 @@ mod bare_mirror_tests {
         run_git(&work, &["init"]);
         run_git(&work, &["config", "user.name", "Synthetic Test"]);
         run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
-        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        std::fs::write(work.join("file.txt"), "base\n").expect("write fixture");
         run_git(&work, &["add", "file.txt"]);
         run_git(&work, &["commit", "-m", "base"]);
         let sha = run_git(&work, &["rev-parse", "HEAD"]);
