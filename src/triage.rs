@@ -193,6 +193,21 @@ mod tests {
     }
 
     #[test]
+    fn dirty_status_without_explicit_conflicts_is_reported_for_operator() {
+        let root = tempfile::tempdir().expect("temp root");
+        std::fs::write(root.path().join("docs-b.md"), "dirty content\n")
+            .expect("write fixture");
+        let status = "On channel: integration\n\nChanges not recorded:\n  (use record)\n\n        moved   docs\n\nUntracked files:\n  (use add)\n\n        docs-b.md\n";
+        let result = parse_status_output(root.path(), status).unwrap();
+        assert!(result.iter().any(|item| matches!(
+            item,
+            Triage::Operator { report } if report.path == "docs-b.md"
+                && report.conflict_state.contains("did not expose an explicit unresolved-conflict section")
+        )));
+        assert!(!result.iter().any(|item| matches!(item, Triage::Clean)));
+    }
+
+    #[test]
     fn unresolved_conflict_is_reported_for_operator() {
         let root = tempfile::tempdir().expect("temp root");
         std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n")
