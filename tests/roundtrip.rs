@@ -18,18 +18,19 @@ mod harness;
 use harness::{assert_text_lossless, corpus, snapshot_text};
 use std::path::Path;
 
-fn skip_unless(cond: bool, what: &str) -> bool {
-    if !cond {
-        eprintln!("SKIP : {what} indisponible sur cette machine");
-    }
-    cond
+fn require_pijul_beta24() {
+    assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
+    let (ok, version) = harness::run(Path::new("."), "pijul", &["--version"]);
+    assert!(ok, "impossible de lire la version de Pijul : {version}");
+    assert!(
+        version.contains("1.0.0-beta.24"),
+        "ce test cible Pijul 1.0.0-beta.24, version observée : {version}"
+    );
 }
 
 #[test]
 fn corpus_scenarios_are_really_conflicting() {
-    if !skip_unless(harness::have("git"), "git") {
-        return;
-    }
+    assert!(harness::have("git"), "pré-requis manquant : git");
     for scenario in corpus() {
         let dir = tempfile::tempdir().expect("tempdir");
         harness::build_git_repo(dir.path(), &scenario);
@@ -119,12 +120,10 @@ fn build_mirror(
 }
 
 #[test]
-fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
-    if !skip_unless(harness::have("git"), "git")
-        || !skip_unless(harness::have("pijul"), "pijul")
-    {
-        return;
-    }
+#[ignore = "requires Git and Pijul 1.0.0-beta.24; run explicitly with RUN_PIJUL_IMPORT_TESTS=1"]
+fn synthetic_import_pipeline_exposes_native_pijul_conflicts() {
+    assert!(harness::have("git"), "pré-requis manquant : git");
+    require_pijul_beta24();
 
     for scenario in corpus() {
         let repo = tempfile::tempdir().expect("synthetic Git repo");
@@ -192,13 +191,7 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 #[ignore = "test d'intégration bloquant, à lancer explicitement avec RUN_SIBLING_RERUN_TEST=1"]
 fn sibling_branches_then_rerun_preserves_base_and_mapping() {
     assert!(harness::have("git"), "pré-requis manquant : git");
-    assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
-    let (version_ok, version) = harness::run(Path::new("."), "pijul", &["--version"]);
-    assert!(version_ok, "impossible de lire la version de Pijul : {version}");
-    assert!(
-        version.contains("1.0.0-beta.24"),
-        "ce test cible Pijul 1.0.0-beta.24, version observée : {version}"
-    );
+    require_pijul_beta24();
 
     let scenario = corpus()
         .into_iter()
@@ -298,12 +291,12 @@ fn git_commits_between(mirror: &Path, base: &str, head: &str) -> Vec<String> {
 #[test]
 #[ignore = "attend un mécanisme déterministe de résolution des conflits du corpus"]
 fn roundtrip_property_end_to_end() {
-    if !skip_unless(harness::have("git"), "git")
-        || !skip_unless(harness::have("pijul"), "pijul")
-        || !skip_unless(harness::have("pijul-export"), "pijul-export")
-    {
-        return;
-    }
+    assert!(harness::have("git"), "pré-requis manquant : git");
+    require_pijul_beta24();
+    assert!(
+        harness::have("pijul-export"),
+        "pré-requis manquant : pijul-export"
+    );
 
     for scenario in corpus() {
         let repo = tempfile::tempdir().expect("synthetic Git repo");
