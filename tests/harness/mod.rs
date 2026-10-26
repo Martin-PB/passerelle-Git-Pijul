@@ -1,4 +1,4 @@
-//! Harnas p0 (backlog 2.1) : outillage du round-trip
+//! Harnais p0 (backlog 2.1) : outillage du round-trip
 //!
 //!   export(import(x)) == x   (sans perte sur le texte)
 //!
