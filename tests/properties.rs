@@ -79,11 +79,24 @@ fn operator_boundary_is_producer_agnostic() {
             PrContext { number: 2, title: "B".into(), author: "bob".into() },
         ],
     });
+    q.pending.push(ConflictReport {
+        path: "README.md".into(),
+        conflict_state: "<< another Pijul conflict >>".into(),
+        prs: vec![],
+    });
     q.submit(ResolutionChange {
         change_hash: "XYZ123".into(),
         note: Some("chose PR 1's approach".into()),
     });
-    assert!(q.pending.is_empty());
+
+    // Submission is not proof of successful application or conflict removal.
+    assert_eq!(q.pending.len(), 2);
     assert_eq!(q.received.len(), 1);
     assert_eq!(q.received[0].change_hash, "XYZ123");
+
+    // The in-memory queue does not acknowledge conflicts itself. The CLI
+    // path performs application plus fresh Pijul triage before reporting success.
+    assert_eq!(q.pending.len(), 2);
+    assert_eq!(q.pending[0].path, "src/lib.rs");
+    assert_eq!(q.pending[1].path, "README.md");
 }
