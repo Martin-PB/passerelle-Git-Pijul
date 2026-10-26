@@ -17,6 +17,7 @@ pub mod ledger;
 pub mod operator;
 pub mod translate;
 pub mod triage;
+pub mod workspace_lock;
 
 /// A pull request as seen by the ingest stage.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

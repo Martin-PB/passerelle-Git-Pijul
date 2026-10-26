@@ -13,7 +13,9 @@
 //!   passerelle operator queue
 //!   passerelle operator submit --path src/lib.rs --change <hash> --note "chose branch A"
 
-use passerelle_git_pijul::{export, ingest, ledger, operator, translate, triage, ExportMode};
+use passerelle_git_pijul::{
+    export, ingest, ledger, operator, translate, triage, workspace_lock::WorkspaceLock, ExportMode,
+};
 use std::path::PathBuf;
 
 fn main() {
@@ -82,6 +84,11 @@ fn ingest_cmd(args: &[String]) {
         eprintln!("ingest requires at least one --ref source=destination");
         std::process::exit(2);
     }
+
+    let _mirror_lock = WorkspaceLock::for_mirror(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire Git mirror lock: {error}");
+        std::process::exit(1);
+    });
 
     match ingest::fetch_refs(&remote, &refs, &workdir) {
         Ok(()) => {
@@ -170,6 +177,16 @@ fn merge_prs(args: &[String]) {
         eprintln!("merge-prs requires at least one PR number");
         std::process::exit(2);
     }
+    // Lock order is always mirror first, then workspace.
+    let _mirror_lock = WorkspaceLock::for_mirror(&mirror).unwrap_or_else(|error| {
+        eprintln!("cannot acquire Git mirror lock: {error}");
+        std::process::exit(1);
+    });
+    let _workspace_lock = WorkspaceLock::for_workspace(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire gateway workspace lock: {error}");
+        std::process::exit(1);
+    });
+
     println!("plan:\n  {}", export::plan(export_mode, &prs).join("\n  "));
 
     let base_ref = if base.starts_with("refs/") {
@@ -320,6 +337,11 @@ fn operator_cmd(args: &[String]) {
             }
         }
     }
+
+    let _workspace_lock = WorkspaceLock::for_workspace(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire gateway workspace lock: {error}");
+        std::process::exit(1);
+    });
 
     match action {
         "queue" => match triage::triage_integration_channel(&workdir.join("pijul")) {
