@@ -11,6 +11,9 @@
 use passerelle_git_pijul::ledger::{Direction, Entry, Ledger, ledger_path};
 use passerelle_git_pijul::operator::{ConflictReport, OperatorQueue, PrContext, ResolutionChange};
 
+const SHA_ONE: &str = "0123456789abcdef0123456789abcdef01234567";
+const SHA_TWO: &str = "abcdef0123456789abcdef0123456789abcdef01";
+
 #[test]
 fn ledger_is_idempotent_on_re_record() {
     let mut l = Ledger::default();
@@ -21,16 +24,16 @@ fn ledger_is_idempotent_on_re_record() {
         direction: Direction::GitToPijul,
         recorded_at: "t".into(),
     };
-    assert!(l.record(e("abc")));
-    assert!(l.record(e("abc"))); // re-record same: fine
-    assert_eq!(l.get("abc").unwrap().pijul_change, "change-abc");
+    assert!(l.record(e(SHA_ONE)));
+    assert!(l.record(e(SHA_ONE))); // re-record same: fine
+    assert_eq!(l.get(SHA_ONE).unwrap().pijul_change, format!("change-{SHA_ONE}"));
 }
 
 #[test]
 fn ledger_detects_force_push() {
     let mut l = Ledger::default();
     assert!(l.record(Entry {
-        git_sha: "abc".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-1".into(),
         pr: None,
         direction: Direction::GitToPijul,
@@ -38,7 +41,7 @@ fn ledger_detects_force_push() {
     }));
     // Same SHA mapped to a different change: the Git side moved.
     assert!(!l.record(Entry {
-        git_sha: "abc".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-2".into(),
         pr: None,
         direction: Direction::GitToPijul,
@@ -50,21 +53,21 @@ fn ledger_detects_force_push() {
 fn ledger_rejects_same_mapping_with_conflicting_provenance() {
     let mut ledger = Ledger::default();
     assert!(ledger.record(Entry {
-        git_sha: "sha-one".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-one".into(),
         pr: Some(1),
         direction: Direction::GitToPijul,
         recorded_at: "t1".into(),
     }));
     assert!(!ledger.record(Entry {
-        git_sha: "sha-one".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-one".into(),
         pr: Some(2),
         direction: Direction::GitToPijul,
         recorded_at: "t2".into(),
     }));
     assert!(!ledger.record(Entry {
-        git_sha: "sha-one".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-one".into(),
         pr: Some(1),
         direction: Direction::PijulToGit,
@@ -86,6 +89,42 @@ fn ledger_load_rejects_inconsistent_or_empty_mappings() {
         let error = Ledger::load(&path).expect_err("invalid ledger must be rejected");
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
+}
+
+#[test]
+fn ledger_rejects_malformed_git_oids_before_recording_or_persisting() {
+    let mut ledger = Ledger::default();
+    assert!(!ledger.record(Entry {
+        git_sha: "short".into(),
+        pijul_change: "change-one".into(),
+        pr: None,
+        direction: Direction::GitToPijul,
+        recorded_at: "t".into(),
+    }));
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_path(dir.path());
+    std::fs::write(
+        &path,
+        r#"{"short":{"git_sha":"short","pijul_change":"change-one","pr":null,"direction":"git-to-pijul","recorded_at":"t"}}"#,
+    )
+    .unwrap();
+    let error = Ledger::load(&path).expect_err("short Git OID must be rejected");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+    let mut invalid = Ledger::default();
+    invalid.by_sha.insert(
+        "short".into(),
+        Entry {
+            git_sha: "short".into(),
+            pijul_change: "change-one".into(),
+            pr: None,
+            direction: Direction::GitToPijul,
+            recorded_at: "t".into(),
+        },
+    );
+    let error = invalid.save(&path).expect_err("short Git OID must not be saved");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[test]
@@ -114,7 +153,7 @@ fn ledger_survives_save_load_cycle() {
     let dir = tempfile::tempdir().unwrap();
     let mut l = Ledger::default();
     l.record(Entry {
-        git_sha: "sha1".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "chg1".into(),
         pr: Some(7),
         direction: Direction::PijulToGit,
@@ -123,7 +162,7 @@ fn ledger_survives_save_load_cycle() {
     let p = ledger_path(dir.path());
     l.save(&p).unwrap();
     let back = Ledger::load(&p).unwrap();
-    assert_eq!(back.get("sha1").unwrap().pijul_change, "chg1");
+    assert_eq!(back.get(SHA_ONE).unwrap().pijul_change, "chg1");
 }
 
 #[test]
@@ -132,7 +171,7 @@ fn ledger_save_atomically_replaces_existing_file_and_cleans_temporary_files() {
     let path = ledger_path(dir.path());
     let mut first = Ledger::default();
     first.record(Entry {
-        git_sha: "sha-one".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-one".into(),
         pr: Some(1),
         direction: Direction::GitToPijul,
@@ -142,14 +181,14 @@ fn ledger_save_atomically_replaces_existing_file_and_cleans_temporary_files() {
 
     let mut second = Ledger::default();
     second.record(Entry {
-        git_sha: "sha-one".into(),
+        git_sha: SHA_ONE.into(),
         pijul_change: "change-one".into(),
         pr: Some(1),
         direction: Direction::GitToPijul,
         recorded_at: "t1".into(),
     });
     second.record(Entry {
-        git_sha: "sha-two".into(),
+        git_sha: SHA_TWO.into(),
         pijul_change: "change-two".into(),
         pr: Some(2),
         direction: Direction::GitToPijul,
@@ -158,8 +197,8 @@ fn ledger_save_atomically_replaces_existing_file_and_cleans_temporary_files() {
     second.save(&path).unwrap();
 
     let loaded = Ledger::load(&path).unwrap();
-    assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
-    assert_eq!(loaded.get("sha-two").unwrap().pijul_change, "change-two");
+    assert_eq!(loaded.get(SHA_ONE).unwrap().pijul_change, "change-one");
+    assert_eq!(loaded.get(SHA_TWO).unwrap().pijul_change, "change-two");
 
     let files: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
