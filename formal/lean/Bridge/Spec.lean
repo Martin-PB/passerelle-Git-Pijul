@@ -544,7 +544,17 @@ def toyDelta : MappingObservation where
   after := [1, 2, 3, 7]
 
 theorem toyDelta_is_singleton : IsSingletonDelta toyDelta := by
-  decide
+  refine ⟨by decide, by decide, ?_, by decide, by decide⟩
+  intro c hc hnc
+  simp [toyDelta] at hc hnc ⊢
+  rcases hc with h | h | h | h
+  · subst c
+    simp at hnc
+  · subst c
+    simp at hnc
+  · subst c
+    simp at hnc
+  · exact h
 
 /-- The delta lemma identifies the new change on the toy delta. -/
 example (candidate : ChangeId)
