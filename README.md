@@ -137,6 +137,66 @@ passerelle operator submit --change <hash> --note "choix de l'approche de la bra
 passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
 ```
 
+## Reprise après interruption d'un import
+
+Avant chaque appel mutateur à `pijul git`, la passerelle écrit une intention
+durable dans `.bridge/import-intents/<git-sha>.json`. Après avoir identifié
+le change Pijul, elle enregistre d'abord ce hash dans l'intention, sauvegarde
+ensuite le mapping dans le ledger, puis retire l'intention. Une interruption
+après la sauvegarde du ledger permet ainsi de comparer le hash exact avant
+d'effacer le journal.
+
+Si le processus s'arrête après la mutation Pijul mais avant la sauvegarde du
+mapping, l'intention reste présente. Une nouvelle tentative **s'arrête sans
+rejouer l'import** et demande une récupération explicite : examiner le channel
+Pijul et le ledger, établir le mapping sans ambiguïté, puis suivre le runbook
+[`docs/import-recovery.md`](docs/import-recovery.md). Celui-ci décrit la
+préservation et le triage, mais il ne fournit pas encore de commande de réparation
+du ledger. Ne pas supprimer manuellement l'intention ni inventer un mapping
+sans preuve suffisante. Cette version n'automatise pas cette réparation et ne
+prétend pas pouvoir retrouver un channel OID que Pijul aurait supprimé.
+
+## Vérification locale Linux
+
+Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md).
+
+Depuis la racine du dépôt :
+
+```sh
+bash scripts/verify-local.sh
+```
+
+Le script n'installe pas les outils et ne déclenche aucune GitHub Action. Une exécution incomplète retourne un code non nul. Le build Lean valide uniquement les théorèmes du modèle abstrait ; la preuve de raffinement vers le moteur Pijul réel et le round-trip de bout en bout restent des objectifs non démontrés.
+
+## Usage
+
+L’ingest générique prend un remote et des mappings source=destination, sans dépendre
+d’un hébergeur particulier. Pour utiliser ensuite `merge-prs`, épingle la base
+sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
+
+```sh
+passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
+  --ref refs/heads/main=refs/remotes/base/main \\
+  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
+  --ref refs/heads/pr-43=refs/remotes/pr/43
+```
+
+Le pipeline d'import est partiellement câblé. `operator queue` lit les conflits
+du channel `integration` ; `operator submit` applique un change déjà enregistré
+et ajoute des événements à `gateway-audit.jsonl`. La file persistante et
+l'attribution des conflits aux PRs restent à faire. Le mode `linear` peut
+tenter un export local si `pijul-export` est installé séparément ;
+`merge-topology` reste incomplet :
+
+```sh
+passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
+passerelle operator queue
+passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
+
+# Greffon frontal (exemple futur) : un hébergement traduit sa sémantique en refs.
+passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
+```
+
 ## Roadmap
 
 - [ ] **P0 — Preuve de round-trip** : importer 3 branches en conflit, fusionner, exporter ; `export(import(x))` vert sur le corpus synthétique
