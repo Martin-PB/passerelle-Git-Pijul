@@ -69,13 +69,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     // or channel header, so channel identity is established by the successful
     // switch command rather than inferred from human-readable status output.
 
-    if status.contains("Unrecorded changes") || status.contains("Untracked files") {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "integration has unrecorded or untracked work; refusing to classify it as clean",
-        ));
-    }
-
     let mut in_conflicts = false;
     let mut paths = Vec::new();
     for line in status.lines() {
@@ -97,6 +90,12 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     }
 
     if !in_conflicts {
+        if status.contains("Unrecorded changes") || status.contains("Untracked files") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "integration has unrecorded or untracked work but no parseable unresolved-conflict section; refusing to classify it as clean",
+            ));
+        }
         return Ok(vec![Triage::Clean]);
     }
     if paths.is_empty() {
