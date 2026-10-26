@@ -32,6 +32,26 @@ where
     }
 }
 
+/// Validate a fully-qualified, literal Git ref before any mirror mutation.
+fn validate_full_ref(reference: &str, role: &str) -> std::io::Result<()> {
+    if !reference.starts_with("refs/") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{role} must be a fully-qualified Git ref beginning with `refs/`: {reference:?}"),
+        ));
+    }
+    let checked = Command::new("git")
+        .args(["check-ref-format", reference])
+        .output()?;
+    if !checked.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid {role} Git ref: {reference:?}"),
+        ));
+    }
+    Ok(())
+}
+
 /// Create or validate a bare mirror. Never run fetch in an arbitrary
 /// directory: doing so previously failed because `dest` was not a Git repo.
 fn ensure_bare_mirror(dest: &Path) -> std::io::Result<()> {
@@ -87,12 +107,7 @@ pub fn fetch_prs(remote: &str, prs: &[PullRequest], dest: &Path) -> std::io::Res
                 format!("duplicate PR/branch number {}", pr.number),
             ));
         }
-        if pr.head_ref.trim().is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("head ref for {} must not be empty", pr.number),
-            ));
-        }
+        validate_full_ref(&pr.head_ref, &format!("head ref for {}", pr.number))?;
     }
 
     ensure_bare_mirror(dest)?;
@@ -128,17 +143,23 @@ pub fn fetch_refs(remote: &str, refs: &[(String, String)], dest: &Path) -> std::
             "remote must not be empty",
         ));
     }
-    ensure_bare_mirror(dest)?;
+    // Validate the complete batch before creating or changing the mirror.
+    // Otherwise a bad later mapping can leave a partially updated mirror, and
+    // duplicate destinations silently overwrite an earlier source ref.
+    let mut destinations = std::collections::BTreeSet::new();
     for (source, destination) in refs {
-        if source.trim().is_empty()
-            || destination.trim().is_empty()
-            || !destination.starts_with("refs/")
-        {
+        validate_full_ref(source, "source")?;
+        validate_full_ref(destination, "destination")?;
+        if !destinations.insert(destination) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("invalid ref mapping {source:?} -> {destination:?}"),
+                format!("duplicate destination ref {destination:?}"),
             ));
         }
+    }
+
+    ensure_bare_mirror(dest)?;
+    for (source, destination) in refs {
         let refspec = format!("+{source}:{destination}");
         git(dest, ["fetch", "--no-tags", remote, &refspec])?;
     }
