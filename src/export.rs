@@ -183,21 +183,31 @@ pub fn export_linear_with_pijul_export(
         ));
     }
     let status_text = String::from_utf8_lossy(&status.stdout);
-    let identifies_integration = status_text.lines().any(|line| {
-        let line = line.trim();
-        (line.starts_with("On branch ") || line.starts_with("On channel "))
-            && line.contains("integration")
-    });
-    if !identifies_integration {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "pijul status did not identify integration; refusing export",
-        ));
-    }
     if status_has_unrecorded_work(&status_text) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "integration has unresolved conflicts or unrecorded changes; refusing Git export",
+        ));
+    }
+    // The successful channel switch above establishes the active channel.
+    // beta.24 can omit a channel header from status, so an empty result is
+    // accepted; any non-empty output must be a known integration header.
+    let unexpected: Vec<_> = status_text
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && *line != "On channel: integration"
+                && *line != "On branch integration"
+        })
+        .collect();
+    if !unexpected.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "unrecognized pijul status output; refusing Git export: {}",
+                unexpected.join(" | ")
+            ),
         ));
     }
 
@@ -372,6 +382,24 @@ mod tests {
             "On channel: integration\n\nUnresolved conflicts:\n        file.txt\n"
         ));
         assert!(!super::status_has_unrecorded_work("On channel: integration\n"));
+    }
+
+    #[test]
+    fn export_status_guard_accepts_empty_status_after_channel_switch() {
+        assert!(!super::status_has_unrecorded_work(""));
+        assert!(!super::status_has_unrecorded_work("On channel: integration\\n"));
+    }
+
+    #[test]
+    fn export_status_guard_rejects_unknown_status_output() {
+        let status = "unexpected status output\\n";
+        assert!(!super::status_has_unrecorded_work(status));
+        assert!(status.lines().any(|line| {
+            let line = line.trim();
+            !line.is_empty()
+                && line != "On channel: integration"
+                && line != "On branch integration"
+        }));
     }
 
     #[test]
