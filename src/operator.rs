@@ -47,6 +47,10 @@ pub struct ResolutionChange {
 /// The operator queue: exposed reports waiting for resolutions.
 /// v0 is an in-process Vec; p2 turns it into the persistent queue behind the
 /// CLI (and later web) console.
+///
+/// Receiving a resolution is not proof that Pijul accepted it or that a
+/// conflict disappeared. This in-memory type never clears pending reports;
+/// the CLI's apply-and-verify path re-runs Pijul triage before reporting success.
 #[derive(Debug, Default)]
 pub struct OperatorQueue {
     pub pending: Vec<ConflictReport>,
@@ -54,12 +58,13 @@ pub struct OperatorQueue {
 }
 
 impl OperatorQueue {
+    /// Record the submitted resolution without acknowledging any conflict.
+    /// Application and a fresh Pijul triage must succeed before a report can
+    /// be removed from the pending queue.
     pub fn submit(&mut self, resolution: ResolutionChange) {
         self.received.push(resolution);
-        if !self.pending.is_empty() {
-            self.pending.remove(0);
-        }
     }
+
 }
 
 
@@ -120,6 +125,72 @@ pub fn apply_resolution(
     Ok(())
 }
 
+/// Apply a resolution only for a conflict currently reported by Pijul,
+/// then re-run triage and return success only if that exact path disappeared.
+///
+/// `workdir` is the gateway directory containing the nested `pijul/` repo.
+/// Paths are compared exactly as emitted by `pijul status`; callers should
+/// pass the path shown by `operator queue`.
+pub fn apply_resolution_and_verify(
+    workdir: &std::path::Path,
+    path: &str,
+    change_hash: &str,
+    note: Option<&str>,
+) -> std::io::Result<()> {
+    if path.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "resolution requires the exact conflict path shown by operator queue",
+        ));
+    }
+    if change_hash.trim().is_empty()
+        || !change_hash.chars().all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "resolution change hash must be a non-empty alphanumeric hash or prefix",
+        ));
+    }
+
+    let pijul_repo = workdir.join("pijul");
+    let before = crate::triage::triage_integration_channel(&pijul_repo)?;
+    let was_pending = before.iter().any(|result| {
+        matches!(result, crate::triage::Triage::Operator { report } if report.path == path)
+    });
+    if !was_pending {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Pijul does not currently report an unresolved conflict at {path:?}"),
+        ));
+    }
+
+    apply_resolution(workdir, change_hash, note)?;
+
+    let after = match crate::triage::triage_integration_channel(&pijul_repo) {
+        Ok(results) => results,
+        Err(error) => {
+            let _ = append_audit(workdir, "resolution-verification-failed", change_hash, note);
+            return Err(std::io::Error::new(
+                error.kind(),
+                format!("resolution was applied but post-apply triage failed; conflict remains unverified: {error}"),
+            ));
+        }
+    };
+    let still_pending = after.iter().any(|result| {
+        matches!(result, crate::triage::Triage::Operator { report } if report.path == path)
+    });
+    if still_pending {
+        let _ = append_audit(workdir, "resolution-unresolved", change_hash, note);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("change {change_hash} was applied, but Pijul still reports a conflict at {path:?}"),
+        ));
+    }
+
+    append_audit(workdir, "resolution-verified", change_hash, note)?;
+    Ok(())
+}
+
 fn append_audit(
     workdir: &std::path::Path,
     event: &'static str,
@@ -148,7 +219,7 @@ fn append_audit(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_audit, apply_resolution};
+    use super::{append_audit, apply_resolution, apply_resolution_and_verify};
     use std::path::Path;
 
     #[test]
@@ -169,6 +240,18 @@ mod tests {
         assert_eq!(first["event"], "resolution-attempted");
         assert_eq!(second["event"], "resolution-applied");
         assert_eq!(second["note"], "keep both");
+    }
+
+    #[test]
+    fn empty_conflict_path_is_rejected_before_running_pijul() {
+        let error = apply_resolution_and_verify(
+            Path::new("/nonexistent-workdir"),
+            "   ",
+            "ABC123",
+            None,
+        )
+        .expect_err("an empty conflict path must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]
