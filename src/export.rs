@@ -130,6 +130,16 @@ fn status_has_unrecorded_work(status: &str) -> bool {
         || status.contains("Untracked files:")
 }
 
+/// A successful channel switch establishes the active channel. beta.24 may
+/// omit the channel header, but arbitrary non-empty status output is unknown.
+fn status_has_unrecognized_output(status: &str) -> bool {
+    status.lines().map(str::trim).any(|line| {
+        !line.is_empty()
+            && line != "On channel: integration"
+            && line != "On branch integration"
+    })
+}
+
 /// Export the integration channel to a local Git branch using an independently
 /// installed `pijul-export` executable. It validates both base ancestry and
 /// the final tree before publishing the ref. It never pushes to a remote.
@@ -189,25 +199,10 @@ pub fn export_linear_with_pijul_export(
             "integration has unresolved conflicts or unrecorded changes; refusing Git export",
         ));
     }
-    // The successful channel switch above establishes the active channel.
-    // beta.24 can omit a channel header from status, so an empty result is
-    // accepted; any non-empty output must be a known integration header.
-    let unexpected: Vec<_> = status_text
-        .lines()
-        .map(str::trim)
-        .filter(|line| {
-            !line.is_empty()
-                && *line != "On channel: integration"
-                && *line != "On branch integration"
-        })
-        .collect();
-    if !unexpected.is_empty() {
+    if status_has_unrecognized_output(&status_text) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!(
-                "unrecognized pijul status output; refusing Git export: {}",
-                unexpected.join(" | ")
-            ),
+            "unrecognized pijul status output; refusing Git export",
         ));
     }
 
@@ -385,21 +380,16 @@ mod tests {
     }
 
     #[test]
-    fn export_status_guard_accepts_empty_status_after_channel_switch() {
-        assert!(!super::status_has_unrecorded_work(""));
-        assert!(!super::status_has_unrecorded_work("On channel: integration\\n"));
+    fn export_status_guard_accepts_empty_or_known_integration_header() {
+        assert!(!super::status_has_unrecognized_output(""));
+        assert!(!super::status_has_unrecognized_output("On channel: integration\n"));
+        assert!(!super::status_has_unrecognized_output("On branch integration\n"));
     }
 
     #[test]
     fn export_status_guard_rejects_unknown_status_output() {
-        let status = "unexpected status output\\n";
-        assert!(!super::status_has_unrecorded_work(status));
-        assert!(status.lines().any(|line| {
-            let line = line.trim();
-            !line.is_empty()
-                && line != "On channel: integration"
-                && line != "On branch integration"
-        }));
+        assert!(super::status_has_unrecognized_output("unexpected status output\n"));
+        assert!(super::status_has_unrecognized_output("On channel: other\n"));
     }
 
     #[test]
