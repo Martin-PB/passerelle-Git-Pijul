@@ -1,9 +1,11 @@
 //! Triage: classify what remains after applying all PR changes onto the
 //! integration channel.
 //!
-//! P0 only detects unresolved conflicts. Deterministic auto-resolution rules
-//! and path-to-PR attribution are intentionally deferred; this module must
-//! never report Clean merely because conflict inspection was skipped.
+//! P0 surfaces explicit unresolved conflicts and conservatively routes dirty
+//! or untracked integration paths to operator review when Pijul does not expose
+//! a conflict section. Dirty status is not proof of a semantic conflict.
+//! Deterministic auto-resolution and path-to-PR attribution are deferred; this
+//! module must never report Clean merely because conflict inspection was skipped.
 
 use crate::operator::ConflictReport;
 use std::path::{Component, Path};
