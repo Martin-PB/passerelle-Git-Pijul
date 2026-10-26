@@ -133,87 +133,157 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         std::io::Error::new(std::io::ErrorKind::InvalidData, message.into())
     }
 
-    let identifies_integration = status.lines().any(|line| {
-        let line = line.trim();
-        line.strip_prefix("On branch ") == Some("integration")
-            || line.strip_prefix("On channel ") == Some("integration")
-    });
-    if !identifies_integration {
-        return Err(invalid(
-            "pijul status output did not identify the exact integration channel; refusing to assume it is clean",
-        ));
-    }
+    // The caller has successfully switched to integration. beta.24 may omit
+    // its header, so empty output is a valid clean state; unknown non-empty
+    // output is never interpreted as clean.
+    let mut section: Option<&str> = None;
+    let mut conflict_section_seen = false;
+    let mut changes_section_seen = false;
+    let mut untracked_section_seen = false;
+    let mut paths: Vec<(String, bool)> = Vec::new();
 
-    if status.contains("Unrecorded changes") || status.contains("Untracked files") {
-        return Err(invalid(
-            "integration has unrecorded or untracked work; refusing to classify it as clean",
-        ));
-    }
-
-    let mut in_conflicts = false;
-    let mut paths = Vec::new();
     for line in status.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed == "On branch integration"
-            || trimmed == "On channel integration"
-        {
+        if trimmed.is_empty() {
             continue;
         }
-        if trimmed == "Unresolved conflicts:" {
-            if in_conflicts {
-                return Err(invalid(
-                    "pijul status repeated the unresolved-conflicts section",
-                ));
+        if matches!(
+            trimmed,
+            "On branch integration" | "On channel integration" | "On channel: integration"
+        ) {
+            if section.is_some() {
+                return Err(invalid("unexpected integration header inside a status section"));
             }
-            in_conflicts = true;
             continue;
         }
-        if in_conflicts {
-            if trimmed.starts_with("(fix conflicts") {
+
+        match trimmed {
+            "Unresolved conflicts:" => {
+                if conflict_section_seen || changes_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                conflict_section_seen = true;
+                section = Some("conflicts");
                 continue;
             }
-            if !line.starts_with(' ') && !line.starts_with('\t') {
+            "Changes not recorded:" => {
+                if conflict_section_seen || changes_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                changes_section_seen = true;
+                section = Some("changes");
+                continue;
+            }
+            "Untracked files:" => {
+                if conflict_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                untracked_section_seen = true;
+                section = Some("untracked");
+                continue;
+            }
+            _ => {}
+        }
+
+        if trimmed.starts_with('(') {
+            if section.is_some() {
+                continue;
+            }
+            return Err(invalid(format!(
+                "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
+            )));
+        }
+
+        let indented = line.starts_with(' ') || line.starts_with('\\t');
+        match section {
+            Some("conflicts") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in conflict section: {trimmed:?}"
+                    )));
+                }
+                paths.push((trimmed.to_owned(), true));
+            }
+            Some("changes") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in changes section: {trimmed:?}"
+                    )));
+                }
+                let mut parts = trimmed.splitn(2, char::is_whitespace);
+                let _operation = parts.next();
+                let path = parts.next().unwrap_or("").trim();
+                if path.is_empty() {
+                    return Err(invalid(format!(
+                        "cannot parse path from Pijul status entry: {trimmed:?}"
+                    )));
+                }
+                paths.push((path.to_owned(), false));
+            }
+            Some("untracked") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in untracked section: {trimmed:?}"
+                    )));
+                }
+                paths.push((trimmed.to_owned(), false));
+            }
+            _ => {
                 return Err(invalid(format!(
-                    "unrecognized pijul status line after unresolved-conflicts section: {trimmed:?}"
+                    "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
                 )));
             }
-            paths.push(trimmed.to_owned());
-            continue;
         }
-        return Err(invalid(format!(
-            "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
-        )));
     }
 
-    if !in_conflicts {
-        return Ok(vec![Triage::Clean]);
-    }
     if paths.is_empty() {
-        return Err(invalid(
-            "pijul status reported unresolved conflicts but no conflict paths could be parsed",
-        ));
+        if conflict_section_seen {
+            return Err(invalid(
+                "pijul status reported unresolved conflicts but no conflict paths could be parsed",
+            ));
+        }
+        if changes_section_seen || untracked_section_seen {
+            return Err(invalid(
+                "pijul status reported unrecorded or untracked work but no paths could be parsed",
+            ));
+        }
+        return Ok(vec![Triage::Clean]);
     }
 
     let mut seen = std::collections::BTreeSet::new();
-    for path in &paths {
+    for (path, _) in &paths {
         if !seen.insert(path.clone()) {
             return Err(invalid(format!(
-                "pijul status repeated conflict path {path:?}; refusing ambiguous triage"
+                "pijul status repeated path {path:?}; refusing ambiguous triage"
             )));
         }
     }
 
+    let dirty_without_conflict_section = !conflict_section_seen;
     let mut reports = Vec::with_capacity(paths.len());
-    for path in paths {
+    for (path, is_conflict) in paths {
         let relative = Path::new(&path);
         let safe = relative.components().all(|component| {
             matches!(component, Component::Normal(_) | Component::CurDir)
         });
-        let conflict_state = if safe {
+        let file_contents = if safe {
             read_reported_file(workdir, relative)
         } else {
-            "Pijul reported a conflict at a non-relative path; content was not read.".into()
+            "Pijul reported a non-relative path; content was not read.".into()
+        };
+        let conflict_state = if dirty_without_conflict_section && !is_conflict {
+            format!(
+                "Pijul status did not expose an explicit unresolved-conflict section. This path is reported as dirty/untracked and requires operator review.\n\n{}",
+                file_contents
+            )
+        } else {
+            file_contents
         };
         reports.push(Triage::Operator {
             report: ConflictReport {
@@ -232,18 +302,18 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn clean_status_requires_an_explicit_integration_channel() {
-        let clean = "On branch integration\n";
-        assert!(matches!(
-            parse_status_output(Path::new("."), clean).unwrap().as_slice(),
-            [Triage::Clean]
-        ));
-        assert_eq!(
-            parse_status_output(Path::new("."), "no channel reported\n")
-                .unwrap_err()
-                .kind(),
-            std::io::ErrorKind::InvalidData
-        );
+    fn clean_status_accepts_empty_or_known_integration_header() {
+        for clean in [
+            "",
+            "On branch integration\n",
+            "On channel integration\n",
+            "On channel: integration\n",
+        ] {
+            assert!(matches!(
+                parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+                [Triage::Clean]
+            ));
+        }
     }
 
     #[test]
@@ -286,6 +356,19 @@ mod tests {
             parse_status_output(Path::new("."), status).unwrap().as_slice(),
             [Triage::Clean]
         ));
+    }
+
+    #[test]
+    fn dirty_beta24_status_without_conflict_section_is_routed_to_operator() {
+        let root = tempfile::tempdir().expect("repository root");
+        std::fs::write(root.path().join("docs.md"), "dirty content\n").expect("write file");
+        let status = "Changes not recorded:\n  (use record)\n        moved   docs.md\n\nUntracked files:\n  (use add)\n        new.md\n";
+        let result = parse_status_output(root.path(), status).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|item| matches!(
+            item,
+            Triage::Operator { report } if report.conflict_state.contains("did not expose an explicit unresolved-conflict section")
+        )));
     }
 
     #[cfg(unix)]
