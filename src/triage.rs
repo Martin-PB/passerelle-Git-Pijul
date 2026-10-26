@@ -126,6 +126,27 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     }
 
     if !in_conflicts && !dirty_without_conflict_section {
+        // An empty status is a valid clean result on beta.24. If the CLI emits
+        // a header, accept only a known integration header; arbitrary non-empty
+        // output must not silently become Clean.
+        let unexpected: Vec<_> = status
+            .lines()
+            .map(str::trim)
+            .filter(|line| {
+                !line.is_empty()
+                    && *line != "On channel: integration"
+                    && *line != "On branch integration"
+            })
+            .collect();
+        if !unexpected.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "unrecognized pijul status output; refusing to classify integration as clean: {}",
+                    unexpected.join(" | ")
+                ),
+            ));
+        }
         return Ok(vec![Triage::Clean]);
     }
     if paths.is_empty() {
@@ -192,6 +213,20 @@ mod tests {
             parse_status_output(Path::new("."), clean).unwrap().as_slice(),
             [Triage::Clean]
         ));
+    }
+
+    #[test]
+    fn unknown_nonempty_status_is_not_classified_as_clean() {
+        let error = parse_status_output(Path::new("."), "unexpected status output\\n")
+            .expect_err("unknown status must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn wrong_channel_header_is_not_classified_as_clean() {
+        let error = parse_status_output(Path::new("."), "On channel: other\\n")
+            .expect_err("a different channel header must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
