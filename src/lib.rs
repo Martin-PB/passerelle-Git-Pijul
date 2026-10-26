@@ -13,6 +13,7 @@
 
 pub mod export;
 pub mod ingest;
+pub mod import_intent;
 pub mod ledger;
 pub mod operator;
 pub mod translate;
