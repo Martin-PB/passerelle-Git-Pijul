@@ -265,6 +265,33 @@ fn pull_channel_into(
     Ok(())
 }
 
+/// Stable operator-internal channel name for a pinned Git base commit.
+/// OID-named channels are temporary implementation details of `pijul git`;
+/// the base used to initialize later PR channels must outlive those OID channels.
+fn stable_base_channel_name(base_sha: &str) -> String {
+    format!("base-{base_sha}")
+}
+
+/// Stable snapshots preserve imported state when pijul git removes the
+/// corresponding OID-named channel while importing a child commit.
+fn stable_commit_channel_name(git_sha: &str) -> String {
+    format!("git-{git_sha}")
+}
+
+/// The first commit in a PR may have a parent OID channel that a prior import
+/// removed. Use the retained stable base channel for that one snapshot.
+fn parent_state_channel<'a>(
+    parent_sha: &'a str,
+    base_sha: &str,
+    stable_base_channel: &'a str,
+) -> &'a str {
+    if parent_sha == base_sha {
+        stable_base_channel
+    } else {
+        parent_sha
+    }
+}
+
 /// Import one PR, ledger every non-merge commit since base, and materialize
 /// operator-facing `pr-N` and `integration` channels. The target channels
 /// are named, stable entry points; commit-OID channels remain implementation
@@ -328,29 +355,97 @@ pub fn translate_pr_from_mirror(
     }
 
     // Pijul beta.24 may drop intermediate OID channels as soon as their
-    // children are imported. Snapshot each parent state before importing its
-    // child, then compute the one-change delta immediately while the child
-    // channel is still available. Importing the entire head first and mapping
-    // afterward is incorrect for histories longer than one commit.
+    // children are imported. Keep a stable channel for the pinned base and
+    // snapshot each parent before importing its child. A later PR must not
+    // depend on the base OID channel still existing.
     let pr_channel = format!("pr-{}", pr.number);
+    let base_channel = stable_base_channel_name(&base.sha);
     let has_previous_import = ledger.by_sha.values().any(|entry| {
         entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul
     });
-    if !has_previous_import {
-        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-        ensure_channel_from(pijul_repo, &base.sha, &pr_channel)?;
-        ensure_channel_from(pijul_repo, &base.sha, "integration")?;
-    } else {
-        let channels = list_channels(pijul_repo)?;
-        if !channels.contains(&pr_channel) || !channels.contains("integration") {
+    let has_any_import = ledger
+        .by_sha
+        .values()
+        .any(|entry| entry.direction == Direction::GitToPijul);
+
+    // On a fresh workspace the Pijul repository does not exist yet, so
+    // querying its channels would fail before the base import can initialize it.
+    // Bootstrap from the pinned base first; never silently recreate a repository
+    // when the ledger says imports already exist.
+    if !pijul_repo.exists() {
+        if has_any_import {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
+                std::io::ErrorKind::NotFound,
+                "Pijul repository is missing although the ledger contains prior imports; refusing unsafe reinitialization",
+            ));
+        }
+        import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+    }
+
+    let mut channels = list_channels(pijul_repo)?;
+    if channels
+        .iter()
+        .any(|channel| channel.starts_with("base-") && channel != &base_channel)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "a different stable base channel already exists; refusing to combine base {} with an integration history built from another base",
+                base.sha
+            ),
+        ));
+    }
+    if !channels.contains(&base_channel) {
+        if !channels.contains(&base.sha) {
+            if has_any_import {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "stable base channel {base_channel:?} is missing and the OID channel {} is unavailable after prior imports; refusing unsafe reinitialization",
+                        base.sha
+                    ),
+                ));
+            }
+            import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
+        }
+        ensure_channel_from(pijul_repo, &base.sha, &base_channel)?;
+        channels = list_channels(pijul_repo)?;
+    }
+
+    if !has_previous_import {
+        if channels.contains(&pr_channel) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
                 format!(
-                    "ledger has prior entries for PR {} but its named channels are missing; refusing unsafe reinitialization",
-                    pr.number
+                    "channel {pr_channel:?} exists without matching ledger entries; refusing to reuse possibly stale state"
                 ),
             ));
         }
+        // Validate an existing integration channel before creating any new PR
+        // channel, so a rejected stale workdir is left unchanged.
+        if channels.contains("integration") && !has_any_import {
+            let base_changes = changes_on_channel(pijul_repo, &base_channel)?;
+            let integration_changes = changes_on_channel(pijul_repo, "integration")?;
+            if integration_changes != base_changes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "integration channel differs from the stable base but the ledger has no imports; refusing to reuse possibly stale state",
+                ));
+            }
+        }
+        ensure_channel_from(pijul_repo, &base_channel, &pr_channel)?;
+        channels = list_channels(pijul_repo)?;
+        if !channels.contains("integration") {
+            ensure_channel_from(pijul_repo, &base_channel, "integration")?;
+        }
+    } else if !channels.contains(&pr_channel) || !channels.contains("integration") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "ledger has prior entries for PR {} but its named channels are missing; refusing unsafe reinitialization",
+                pr.number
+            ),
+        ));
     }
 
     let commits = git(
@@ -384,10 +479,23 @@ pub fn translate_pr_from_mirror(
             ));
         }
         let parent_sha = parts[1];
-        let before = changes_on_channel(pijul_repo, parent_sha)?;
+        let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
+        let parent_snapshot = if parent_sha == base.sha {
+            base_channel.clone()
+        } else {
+            stable_commit_channel_name(parent_sha)
+        };
+        // pijul git resolves a commit's parent by its Git-OID channel name.
+        // beta.24 may remove that channel after importing a child, so restore
+        // it from the durable snapshot before every import.
+        ensure_channel_from(pijul_repo, &parent_snapshot, parent_sha)?;
+        let before = changes_on_channel(pijul_repo, parent_channel)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
+        // Preserve this commit's state before a later child import can remove
+        // its OID-named channel.
+        ensure_channel_from(pijul_repo, sha, &stable_commit_channel_name(sha))?;
         record_mapping_and_checkpoint(
             ledger,
             Entry {
@@ -422,6 +530,53 @@ fn record_mapping_and_checkpoint(
         ));
     }
     ledger.save(ledger_file)
+}
+
+#[cfg(test)]
+mod ledger_checkpoint_tests {
+    use super::record_mapping_and_checkpoint;
+    use crate::ledger::{ledger_path, Direction, Entry, Ledger};
+
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn entry(pijul_change: &str) -> Entry {
+        Entry {
+            git_sha: SHA.into(),
+            pijul_change: pijul_change.into(),
+            pr: Some(42),
+            direction: Direction::GitToPijul,
+            recorded_at: "test-time".into(),
+        }
+    }
+
+    #[test]
+    fn completed_mapping_is_persisted_immediately() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+
+        record_mapping_and_checkpoint(&mut ledger, entry("change-one"), &path)
+            .expect("checkpoint mapping");
+
+        let loaded = Ledger::load(&path).expect("load checkpoint");
+        assert_eq!(loaded.get(SHA).unwrap().pijul_change, "change-one");
+    }
+
+    #[test]
+    fn conflicting_mapping_does_not_replace_persisted_checkpoint() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+        record_mapping_and_checkpoint(&mut ledger, entry("change-one"), &path)
+            .expect("checkpoint original mapping");
+
+        let error = record_mapping_and_checkpoint(&mut ledger, entry("different-change"), &path)
+            .expect_err("a conflicting mapping must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let loaded = Ledger::load(&path).expect("load original checkpoint");
+        assert_eq!(loaded.get(SHA).unwrap().pijul_change, "change-one");
+    }
 }
 
 /// Translate one PR into a Pijul channel `pr-<n>`.
@@ -476,51 +631,28 @@ fn now_timestamp() -> String {
 
 
 #[cfg(test)]
-mod ledger_checkpoint_tests {
-    use super::record_mapping_and_checkpoint;
-    use crate::ledger::{ledger_path, Direction, Entry, Ledger};
+mod stable_base_channel_tests {
+    use super::{parent_state_channel, stable_base_channel_name};
 
-    fn entry(git_sha: &str, pijul_change: &str) -> Entry {
-        Entry {
-            git_sha: git_sha.into(),
-            pijul_change: pijul_change.into(),
-            pr: Some(42),
-            direction: Direction::GitToPijul,
-            recorded_at: "test-time".into(),
-        }
+    #[test]
+    fn base_channel_name_is_stable_for_a_pinned_sha() {
+        assert_eq!(
+            stable_base_channel_name("0123456789abcdef"),
+            "base-0123456789abcdef"
+        );
     }
 
     #[test]
-    fn completed_mapping_is_persisted_immediately() {
-        let dir = tempfile::tempdir().expect("temporary ledger directory");
-        let path = ledger_path(dir.path());
-        let mut ledger = Ledger::default();
-
-        record_mapping_and_checkpoint(&mut ledger, entry("sha-one", "change-one"), &path)
-            .expect("checkpoint mapping");
-
-        let loaded = Ledger::load(&path).expect("load checkpoint");
-        assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
-    }
-
-    #[test]
-    fn conflicting_mapping_does_not_replace_persisted_checkpoint() {
-        let dir = tempfile::tempdir().expect("temporary ledger directory");
-        let path = ledger_path(dir.path());
-        let mut ledger = Ledger::default();
-        record_mapping_and_checkpoint(&mut ledger, entry("sha-one", "change-one"), &path)
-            .expect("checkpoint original mapping");
-
-        let error = record_mapping_and_checkpoint(
-            &mut ledger,
-            entry("sha-one", "different-change"),
-            &path,
-        )
-        .expect_err("a conflicting mapping must be rejected");
-        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
-
-        let loaded = Ledger::load(&path).expect("load original checkpoint");
-        assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
+    fn first_commit_uses_stable_base_for_parent_snapshot() {
+        let stable = "base-0123456789abcdef";
+        assert_eq!(
+            parent_state_channel("0123456789abcdef", "0123456789abcdef", stable),
+            stable
+        );
+        assert_eq!(
+            parent_state_channel("fedcba9876543210", "0123456789abcdef", stable),
+            "fedcba9876543210"
+        );
     }
 }
 

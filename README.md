@@ -44,10 +44,12 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 1. **Ingest** — fetch des refs entrantes dans un miroir Git bare, avec historique complet. Le cœur ne suppose pas que les frontières d'un clone shallow soient compatibles avec l'import de l'histoire par `pijul git`.
 2. **Traduction aller** — `pijul git` : un channel interne par commit importé ; les channels nommés (`pr-<n>`, `integration`) restent la surface opérateur. Le ledger enregistre `SHA ↔ change-hash` pour l'idempotence et l'audit.
 3. **Fusion dans Pijul** — un channel `integration` reçoit les changes des branches. Les patchs indépendants **commutent** : une classe entière des « conflits » Git disparaît ici.
-4. **Tri** — trois issues seulement :
-   - `Clean` — les changes commutent ;
-   - `AutoResolved` — règle déterministe (contenu identique, lint, sémantique `union`/`ours`) ; la résolution est un change dédié, étiqueté pour l'audit ;
-   - `Operator` — arbitrage métier réel, ou binaire (toujours opérateur).
+4. **Tri** — trois issues, fondées sur le résultat du modèle natif Pijul :
+   - `Clean` — aucun conflit natif Pijul non résolu n'est signalé ;
+   - `AutoResolved` — futur traitement déterministe d'un conflit natif Pijul (à implémenter) ; la résolution doit devenir un change dédié et auditable ;
+   - `Operator` — conflit natif Pijul encore non résolu après les éventuelles règles automatiques.
+   
+   Un conflit de fusion Git ne déclenche donc pas, à lui seul, un arbitrage : si les changes commutent dans Pijul, aucun arbitrage n'est requis. La passerelle ne crée pas de catégorie séparée de « conflit métier » et ne déduit pas un conflit à partir de marqueurs textuels Git.
 5. **Opérateur** — voir ci-dessous.
 6. **Traduction retour** — le channel `integration` devient une branche Git :
    - `--export-mode linear` : un commit par change, ordre des dépendances, auteurs/dates/messages préservés ;
@@ -56,7 +58,7 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 ## État d'implémentation
 
 - **Ingest Git (première tranche)** : implémentation en cours sur une branche dédiée. Le miroir bare est initialisé explicitement, les refs sont épinglées, et une tête différente du SHA attendu est refusée. Des tests d'intégration sur dépôts synthétiques couvrent ces cas.
-- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Le premier triage lit `pijul status` et bloque l’export si des conflits sont signalés. Ce chemin n’est pas encore validé à l’exécution et les commits de merge Git sont refusés explicitement.
+- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Le premier triage lit `pijul status` : les conflits explicitement signalés sont exposés à l’opérateur ; si beta.24 signale seulement des modifications non enregistrées ou des fichiers non suivis, ces chemins sont aussi envoyés en revue opérateur sans être présentés comme des conflits sémantiques. L’export refuse ces états non propres. Les tests locaux couvrent le triage ciblé et la relance de branches sœurs, mais pas le round-trip complet ; les commits de merge Git sont refusés explicitement.
 - **Export Pijul → Git** : un adaptateur expérimental `linear` peut invoquer un binaire externe `pijul-export` (non embarqué), puis vérifie l’ascendance depuis la base et l’égalité de l’arbre Git avec le working copy Pijul. `merge-topology` reste non implémenté. Aucun push distant n’est effectué.
 - **P0 round-trip** : non validé. Le test de bout en bout reste ignoré tant que l'import et l'export réels ne sont pas implémentés. Aucun résultat NOT RUN ne doit être présenté comme PASS.
 
@@ -91,6 +93,12 @@ sur l'implémentation des backlogs 2.2 et 2.3.
 ## Vérification locale Linux
 
 Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md).
+
+L'installation de Lean sur Ubuntu (elan + toolchain épinglé) et le plan d'avancement de la spécification sont décrits dans [`docs/lean-setup.md`](docs/lean-setup.md) :
+
+```sh
+bash scripts/setup-lean.sh
+```
 
 Depuis la racine du dépôt :
 
