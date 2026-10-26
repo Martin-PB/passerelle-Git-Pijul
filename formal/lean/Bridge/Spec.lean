@@ -734,6 +734,14 @@ def MappingSound (s : PlatformState) : Prop :=
     (∃ commit, s.git.history.commit oid = some commit) ∧
     change ∈ s.pijul.changes
 
+/-- One Git commit OID cannot be mapped to two different Pijul change
+    identities. This is the platform-level form of the ledger's functional
+    mapping invariant; it does not require distinct Git commits to map to
+    distinct changes. -/
+def MappingFunctional (s : PlatformState) : Prop :=
+  ∀ oid c₁ c₂, s.ledger.links oid c₁ →
+    s.ledger.links oid c₂ → c₁ = c₂
+
 /-- Every imported commit that the translation contract says requires a
     change mapping has at least one mapping. Empty/metadata-only commits may
     set requiresChangeMapping to false; their handling must still be specified
@@ -877,6 +885,7 @@ def ScenarioRequiresArbitration (scenario : ConflictScenario) : Prop :=
 def CoherentCheckpoint (s : PlatformState) : Prop :=
   ObservableTreeEq (s.git.treeAt s.git.tip) s.pijul.tree ∧
   MappingSound s ∧
+  MappingFunctional s ∧
   MappingCoverage s ∧
   BridgeChangeTraceability s ∧
   DependencyClosed s.pijul ∧
@@ -888,6 +897,7 @@ def CoherentCheckpoint (s : PlatformState) : Prop :=
 def PendingArbitration (s : PlatformState) : Prop :=
   s.pijul.nativeConflicts ≠ [] ∧
   MappingSound s ∧
+  MappingFunctional s ∧
   MappingCoverage s ∧
   BridgeChangeTraceability s ∧
   DependencyClosed s.pijul
