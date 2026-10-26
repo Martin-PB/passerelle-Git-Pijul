@@ -6,6 +6,7 @@
 //! It deliberately fails closed if the CLI's observed result differs from the
 //! design assumption of exactly one change per non-root Git commit.
 
+use crate::import_intent::{ImportIntent, ImportIntentStore};
 use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
@@ -375,6 +376,110 @@ pub fn translate_pr_from_mirror(
         }
     }
 
+    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
+    let ledger_file = crate::ledger::ledger_path(ledger_root);
+    let intent_store = ImportIntentStore::new(ledger_root);
+
+    // Quarantine the entire workspace if any earlier import is unresolved.
+    // A pending intent for a different SHA can still represent a mutation to
+    // the shared Pijul repository, so checking only the current loop SHA is
+    // insufficient. The sole automatic recovery is an exact intent whose
+    // mapping is already durable in the ledger.
+    let pending_intents = intent_store.pending_intents()?;
+    if !pending_intents.is_empty() {
+        let durable_ledger = Ledger::load(&ledger_file)?;
+        for intent in pending_intents {
+            let Some(change) = intent.pijul_change.as_deref() else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    format!(
+                        "workspace has unresolved import intent for {}; no durable change mapping exists, recover explicitly before importing any SHA",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            let Some(durable_entry) = durable_ledger.get(&intent.git_sha) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    format!(
+                        "workspace has unresolved import intent for {}; ledger mapping is absent, recover explicitly before importing any SHA",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            if durable_entry.git_sha != intent.git_sha
+                || durable_entry.direction != Direction::GitToPijul
+                || durable_entry.pr != Some(intent.pr)
+                || durable_entry.pijul_change != change
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "durable ledger entry does not exactly match pending import intent for {}; workspace quarantined",
+                        intent.git_sha
+                    ),
+                ));
+            }
+
+            let parent_line = git(
+                git_mirror,
+                &["rev-list", "--parents", "-n", "1", &intent.git_sha],
+            )?;
+            let parts: Vec<_> = parent_line.split_whitespace().collect();
+            if parts.len() != 2 || intent.parent_sha != parts[1] {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "pending import intent for {} does not match its current Git parent",
+                        intent.git_sha
+                    ),
+                ));
+            }
+            let resolved_base = git(
+                git_mirror,
+                &["rev-parse", &format!("{}^{{commit}}", intent.base_sha)],
+            )?;
+            if resolved_base != intent.base_sha {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "pending import intent for {} references an unavailable or non-canonical base",
+                        intent.git_sha
+                    ),
+                ));
+            }
+
+            let Some(memory_entry) = ledger.get(&intent.git_sha) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "durable mapping for pending intent {} is absent from the in-memory ledger; reload before retrying",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            if memory_entry.git_sha != durable_entry.git_sha
+                || memory_entry.direction != durable_entry.direction
+                || memory_entry.pr != durable_entry.pr
+                || memory_entry.pijul_change != durable_entry.pijul_change
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "in-memory and durable ledger mappings differ for pending intent {}; workspace quarantined",
+                        intent.git_sha
+                    ),
+                ));
+            }
+            intent_store.reconcile_committed(
+                &intent,
+                &durable_entry.git_sha,
+                durable_entry.pr,
+                &durable_entry.pijul_change,
+            )?;
+        }
+    }
+
     // Pijul beta.24 may drop intermediate OID channels as soon as their
     // children are imported. Keep a stable channel for the pinned base and
     // snapshot each parent before importing its child. A later PR must not
@@ -473,13 +578,52 @@ pub fn translate_pr_from_mirror(
         git_mirror,
         &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
     )?;
-    let ledger_file = crate::ledger::ledger_path(pijul_repo.parent().unwrap_or(pijul_repo));
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
         // refer to channels it has already dropped. The retained PR tip is
         // the checkpoint; import only commits not yet in the ledger.
         if let Some(existing) = ledger.get(sha) {
             if existing.direction == Direction::GitToPijul && existing.pr == Some(pr.number) {
+                if let Some(intent) = intent_store.load(sha)? {
+                    if intent.base_sha != base.sha {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} names a different base"),
+                        ));
+                    }
+                    let parent_line =
+                        git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
+                    let parts: Vec<_> = parent_line.split_whitespace().collect();
+                    if parts.len() != 2 || intent.parent_sha != parts[1] {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} does not match its current Git parent"),
+                        ));
+                    }
+                    let durable_ledger = Ledger::load(&ledger_file)?;
+                    let Some(durable_entry) = durable_ledger.get(sha) else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} has no durable ledger mapping"),
+                        ));
+                    };
+                    if durable_entry.git_sha != existing.git_sha
+                        || durable_entry.pijul_change != existing.pijul_change
+                        || durable_entry.pr != existing.pr
+                        || durable_entry.direction != existing.direction
+                    {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("durable ledger entry for {sha} differs from the in-memory mapping"),
+                        ));
+                    }
+                    intent_store.reconcile_committed(
+                        &intent,
+                        &durable_entry.git_sha,
+                        durable_entry.pr,
+                        &durable_entry.pijul_change,
+                    )?;
+                }
                 continue;
             }
             return Err(std::io::Error::new(
@@ -488,6 +632,7 @@ pub fn translate_pr_from_mirror(
             ));
         }
 
+        intent_store.require_no_uncommitted_intent(sha)?;
         let parents = git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
         let parts: Vec<_> = parents.split_whitespace().collect();
         if parts.len() != 2 {
@@ -500,6 +645,16 @@ pub fn translate_pr_from_mirror(
             ));
         }
         let parent_sha = parts[1];
+        let mut intent = ImportIntent {
+            git_sha: sha.to_owned(),
+            parent_sha: parent_sha.to_owned(),
+            base_sha: base.sha.clone(),
+            pr: pr.number,
+            pijul_change: None,
+        };
+        // Persist the intent before any mutating Pijul call, including restoring
+        // a missing parent channel from its stable snapshot.
+        intent_store.begin(&intent)?;
         let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
         let parent_snapshot = if parent_sha == base.sha {
             base_channel.clone()
@@ -517,6 +672,8 @@ pub fn translate_pr_from_mirror(
         // Preserve this commit's state before a later child import can remove
         // its OID-named channel.
         ensure_channel_from(pijul_repo, sha, &stable_commit_channel_name(sha))?;
+        intent.pijul_change = Some(change.clone());
+        intent_store.mark_mapped(&intent)?;
         record_mapping_and_checkpoint(
             ledger,
             Entry {
@@ -528,6 +685,7 @@ pub fn translate_pr_from_mirror(
             },
             &ledger_file,
         )?;
+        intent_store.complete(&intent)?;
     }
 
     pull_channel_into(pijul_repo, &pr.head_sha, &pr_channel)?;
@@ -719,6 +877,103 @@ mod pinned_commit_tests {
 }
 
 #[cfg(test)]
+mod pending_intent_preflight_tests {
+    use super::translate_pr_from_mirror;
+    use crate::import_intent::{ImportIntent, ImportIntentStore};
+    use crate::ledger::Ledger;
+    use crate::{Base, PullRequest};
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git must be installed for pending-intent preflight tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn unrelated_unresolved_intent_blocks_before_pijul_repository_initialization() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let work = root.path().join("git-work");
+        let mirror = root.path().join("mirror.git");
+        let workspace = root.path().join("workspace");
+        let pijul_repo = workspace.join("pijul");
+        let scratch = workspace.join("scratch");
+        std::fs::create_dir_all(&work).expect("create Git worktree");
+        std::fs::create_dir_all(&workspace).expect("create gateway workspace");
+        run_git(root.path(), &["init", "--bare", mirror.to_str().unwrap()]);
+        run_git(&work, &["init", "-b", "main"]);
+        run_git(&work, &["config", "user.name", "Synthetic Test"]);
+        run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(work.join("base.txt"), "base\n").expect("write base file");
+        run_git(&work, &["add", "base.txt"]);
+        run_git(&work, &["commit", "-m", "base"]);
+        let base_sha = run_git(&work, &["rev-parse", "HEAD"]);
+
+        run_git(&work, &["checkout", "-b", "other"]);
+        std::fs::write(work.join("other.txt"), "other\n").expect("write unrelated file");
+        run_git(&work, &["add", "other.txt"]);
+        run_git(&work, &["commit", "-m", "unrelated commit"]);
+        let unrelated_sha = run_git(&work, &["rev-parse", "HEAD"]);
+
+        run_git(&work, &["checkout", "main"]);
+        std::fs::write(work.join("head.txt"), "head\n").expect("write PR file");
+        run_git(&work, &["add", "head.txt"]);
+        run_git(&work, &["commit", "-m", "PR head"]);
+        let head_sha = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(
+            &work,
+            &["push", mirror.to_str().unwrap(), "main", "other"],
+        );
+
+        ImportIntentStore::new(&workspace)
+            .begin(&ImportIntent {
+                git_sha: unrelated_sha,
+                parent_sha: base_sha.clone(),
+                base_sha: base_sha.clone(),
+                pr: 999,
+                pijul_change: None,
+            })
+            .expect("persist unrelated pending intent");
+
+        let error = translate_pr_from_mirror(
+            &mirror,
+            &pijul_repo,
+            &scratch,
+            &Base {
+                branch: "main".into(),
+                sha: base_sha,
+            },
+            &PullRequest {
+                number: 42,
+                title: "synthetic PR".into(),
+                author: "test".into(),
+                head_sha,
+                head_ref: "refs/heads/main".into(),
+            },
+            &mut Ledger::default(),
+        )
+        .expect_err("an unrelated unresolved intent must quarantine the workspace");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(error.to_string().contains("unresolved import intent"));
+        assert!(
+            !pijul_repo.exists(),
+            "the pending-intent check must run before initializing Pijul"
+        );
+    }
+}
+
+#[cfg(test)]
 mod bare_mirror_tests {
     use super::{git, git_status};
     use std::path::Path;
@@ -749,7 +1004,7 @@ mod bare_mirror_tests {
         run_git(&work, &["init"]);
         run_git(&work, &["config", "user.name", "Synthetic Test"]);
         run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
-        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        std::fs::write(work.join("file.txt"), "base\n").expect("write fixture");
         run_git(&work, &["add", "file.txt"]);
         run_git(&work, &["commit", "-m", "base"]);
         let sha = run_git(&work, &["rev-parse", "HEAD"]);

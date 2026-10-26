@@ -141,6 +141,25 @@ passerelle operator submit --path src/lib.rs --change <hash> --note "choix de l'
 passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
 ```
 
+## Reprise après interruption d'un import
+
+Avant chaque appel mutateur à `pijul git`, la passerelle écrit une intention
+durable dans `.bridge/import-intents/<git-sha>.json`. Après avoir identifié
+le change Pijul, elle enregistre d'abord ce hash dans l'intention, sauvegarde
+ensuite le mapping dans le ledger, puis retire l'intention. Une interruption
+après la sauvegarde du ledger permet ainsi de comparer le hash exact avant
+d'effacer le journal.
+
+Si le processus s'arrête après la mutation Pijul mais avant la sauvegarde du
+mapping, l'intention reste présente. Une nouvelle tentative **s'arrête sans
+rejouer l'import** et demande une récupération explicite : examiner le channel
+Pijul et le ledger, établir le mapping sans ambiguïté, puis suivre le runbook
+[`docs/import-recovery.md`](docs/import-recovery.md). Celui-ci décrit la
+préservation et le triage, mais il ne fournit pas encore de commande de réparation
+du ledger. Ne pas supprimer manuellement l'intention ni inventer un mapping
+sans preuve suffisante. Cette version n'automatise pas cette réparation et ne
+prétend pas pouvoir retrouver un channel OID que Pijul aurait supprimé.
+
 ## Roadmap
 
 - [ ] **P0 — Preuve de round-trip** : importer 3 branches en conflit, fusionner, exporter ; `export(import(x))` vert sur le corpus synthétique
