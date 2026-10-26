@@ -1,4 +1,4 @@
-/*
+/-
 Copyright (c) 2026 Martin-PB. All rights reserved.
 See the repository root for the applicable license.
 
@@ -8,7 +8,7 @@ This file specifies contracts before choosing an import algorithm. It does NOT
 claim to model the full Pijul patch calculus yet. The abstract Pijul interface
 below is an explicit proof boundary, not a theorem about the upstream CLI. Do
 not add axioms that simply assert the desired end-to-end correctness property.
-*/
+-/
 
 import Std
 
@@ -84,8 +84,8 @@ theorem parent_is_ancestor (h : GitHistory) {p c : Oid}
 theorem ancestry_transitive (h : GitHistory) {a b c : Oid}
     (hab : Ancestor h a b) (hbc : Ancestor h b c) : Ancestor h a c := by
   induction hbc with
-  | refl _ => exact hab
-  | @step _ _ parent child hbp edge ih =>
+  | refl => exact hab
+  | step hbp edge ih =>
       exact Ancestor.step ih edge
 
 /-- Each direct parent edge strictly increases rank in the forward direction. -/
@@ -98,8 +98,8 @@ theorem parent_edge_rank_lt (h : GitHistory) {p c : Oid}
 theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
     (ha : Ancestor h a d) : h.rank a ≤ h.rank d := by
   induction ha with
-  | refl x => exact Nat.le_refl _
-  | @step ancestor parent child hprev edge ih =>
+  | refl => exact Nat.le_refl _
+  | step hprev edge ih =>
       exact Nat.le_trans ih (Nat.le_of_lt (parent_edge_rank_lt h edge))
 
 /-- A non-reflexive ancestor path strictly increases rank. This rules out a
@@ -107,9 +107,9 @@ theorem ancestor_rank_le (h : GitHistory) {a d : Oid}
 theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
     (ha : Ancestor h a d) (hne : a ≠ d) : h.rank a < h.rank d := by
   cases ha with
-  | refl x =>
+  | refl =>
       exact False.elim (hne rfl)
-  | @step ancestor parent child hprev edge =>
+  | step hprev edge =>
       exact Nat.lt_of_le_of_lt (ancestor_rank_le h hprev)
         (parent_edge_rank_lt h edge)
 
@@ -117,16 +117,136 @@ theorem ancestor_rank_lt_of_ne (h : GitHistory) {a d : Oid}
     history cannot contain a nontrivial cycle. -/
 theorem ancestry_antisymmetric (h : GitHistory) {a b : Oid}
     (hab : Ancestor h a b) (hba : Ancestor h b a) : a = b := by
-  by_contra hne
-  have hlt₁ : h.rank a < h.rank b := ancestor_rank_lt_of_ne h hab hne
-  have hlt₂ : h.rank b < h.rank a :=
-    ancestor_rank_lt_of_ne h hba (Ne.symm hne)
-  exact (Nat.lt_asymm hlt₁ hlt₂)
+  by_cases hne : a = b
+  · exact hne
+  · have hlt₁ : h.rank a < h.rank b := ancestor_rank_lt_of_ne h hab hne
+    have hlt₂ : h.rank b < h.rank a :=
+      ancestor_rank_lt_of_ne h hba (Ne.symm hne)
+    exact (Nat.lt_irrefl (h.rank a) (Nat.lt_trans hlt₁ hlt₂)).elim
 
-/-- A commit is in the base-to-head range iff base is its ancestor and it
-    is itself an ancestor of head. -/
-def InRange (h : GitHistory) (base head commit : Oid) : Prop :=
-  Ancestor h base commit ∧ Ancestor h commit head
+/-- A three-commit toy history: commit 0 is the root, commit 1 has parent 0,
+    commit 2 has parent 1. All trees are empty; rank follows depth so the
+    `parentRank` certificate holds. -/
+def toyCommit (oid : Oid) : Option GitCommit :=
+  if oid = 0 then
+    some { oid := 0, parents := [], tree := fun _ => none,
+           author := 0, message := 0 }
+  else if oid = 1 then
+    some { oid := 1, parents := [0], tree := fun _ => none,
+           author := 0, message := 0 }
+  else if oid = 2 then
+    some { oid := 2, parents := [1], tree := fun _ => none,
+           author := 0, message := 0 }
+  else
+    none
+
+def toyRank (oid : Oid) : Nat :=
+  if oid = 0 then 0 else if oid = 1 then 1 else if oid = 2 then 2 else 3
+
+/-- `toyHistory` is a legitimate `GitHistory`: every declared parent exists,
+    ranks strictly increase along parent edges, OIDs are consistent and
+    parent lists are duplicate-free. -/
+def toyHistory : GitHistory where
+  commit := toyCommit
+  rank := toyRank
+  parentExists := by
+    intro child c hc parent hp
+    simp only [toyCommit] at hc
+    split at hc
+    · next h =>
+        injection hc with hc'
+        subst hc'
+        simp at hp
+    · split at hc
+      · next h =>
+          injection hc with hc'
+          subst hc'
+          simp only [List.mem_singleton] at hp
+          exact ⟨0, by rw [hp]; exact rfl⟩
+      · split at hc
+        · next h =>
+            injection hc with hc'
+            subst hc'
+            simp only [List.mem_singleton] at hp
+            exact ⟨1, by rw [hp]; exact rfl⟩
+        · exact Option.noConfusion hc
+  parentRank := by
+    intro child c hc parent hp
+    simp only [toyCommit] at hc
+    split at hc
+    · next h =>
+        injection hc with hc'
+        subst hc'
+        simp at hp
+    · split at hc
+      · next h =>
+          injection hc with hc'
+          subst hc'
+          simp only [List.mem_singleton] at hp
+          rw [hp, h]
+          decide
+      · split at hc
+        · next h =>
+            injection hc with hc'
+            subst hc'
+            simp only [List.mem_singleton] at hp
+            rw [hp, h]
+            decide
+        · exact Option.noConfusion hc
+  oidMatches := by
+    intro oid c hc
+    simp only [toyCommit] at hc
+    split at hc
+    · next h =>
+        injection hc with hc'
+        subst hc'
+        rw [h]; rfl
+    · split at hc
+      · next h =>
+          injection hc with hc'
+          subst hc'
+          rw [h]; rfl
+      · split at hc
+        · next h =>
+            injection hc with hc'
+            subst hc'
+            rw [h]; rfl
+        · exact Option.noConfusion hc
+  parentsNoDup := by
+    intro oid c hc
+    simp only [toyCommit] at hc
+    split at hc
+    · next h =>
+        injection hc with hc'
+        subst hc'
+        simp
+    · split at hc
+      · next h =>
+          injection hc with hc'
+          subst hc'
+          simp
+      · split at hc
+        · next h =>
+            injection hc with hc'
+            subst hc'
+            simp
+        · exact Option.noConfusion hc
+
+/-- The declared parent edges exist as `ParentEdge`s. -/
+example : toyHistory.ParentEdge 0 1 :=
+  ⟨_, rfl, List.Mem.head _⟩
+
+example : toyHistory.ParentEdge 1 2 :=
+  ⟨_, rfl, List.Mem.head _⟩
+
+/-- Ancestry composes the two edges into a non-reflexive path, and the
+    transitivity theorem applies to the toy history. -/
+example : toyHistory.Ancestor 0 2 := by
+  have e01 : toyHistory.ParentEdge 0 1 := ⟨_, rfl, List.Mem.head _⟩
+  have e12 : toyHistory.ParentEdge 1 2 := ⟨_, rfl, List.Mem.head _⟩
+  exact ancestry_transitive toyHistory
+    (Ancestor.step (Ancestor.refl 0) e01)
+    (Ancestor.step (Ancestor.refl 1) e12)
 
 end GitHistory
 
@@ -156,9 +276,16 @@ theorem tree_refinement_along_ancestry (h : GitHistory)
     (baseCorrect : TreeEq (r.gitTree base) (r.pijulTree base)) :
     TreeEq (r.gitTree head) (r.pijulTree head) := by
   induction reach with
-  | refl _ => exact baseCorrect
-  | @step ancestor parent child previous edge ih =>
-      exact r.edgePreserves parent child edge ih
+  | refl => exact baseCorrect
+  | step hprev edge ih =>
+      exact r.edgePreserves _ _ edge ih
+
+/-- With identical empty trees on both sides, the trivial refinement witness
+    satisfies every obligation. -/
+example (h : GitHistory) : TreeRefinement h where
+  gitTree := fun _ _ => none
+  pijulTree := fun _ _ => none
+  edgePreserves := fun parent child edge h => treeEq_refl _
 
 /-! ## 2. Abstract change model and trust boundary -/
 
@@ -224,6 +351,23 @@ def GitTopologyEquivalent (h : GitHistory)
     (translatedParent : Oid → Oid → Prop) : Prop :=
   ∀ p c, GitHistory.ParentEdge h p c ↔ translatedParent p c
 
+/-- `P0Equivalent` is satisfiable but must not be accepted vacuously: with an
+    empty import set both conjuncts hold trivially, which is exactly why T3
+    must anchor `imported` to a concrete range predicate. -/
+def emptyObservation : P0Observation where
+  imported := fun _ => False
+  gitTree := fun _ _ => none
+  pijulTree := fun _ _ => none
+  gitConflict := fun _ _ => False
+  pijulConflict := fun _ _ => False
+
+example : P0Equivalent emptyObservation := by
+  refine ⟨?_, ?_⟩
+  · intro c hc
+    simp [emptyObservation] at hc
+  · intro a b ha hb
+    exact Iff.rfl
+
 /-! ## 4. Ledger contract -/
 
 structure Ledger where
@@ -268,7 +412,7 @@ theorem Ledger.recordIfAbsent_idempotent (ledger : Ledger)
     different change. Exact duplicate writes remain accepted and idempotent. -/
 def Ledger.recordChecked (ledger : Ledger) (oid : Oid) (change : ChangeId) :
     Option Ledger :=
-  if h : ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change then
+  if ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) then
     none
   else
     some (ledger.recordIfAbsent oid change)
@@ -280,10 +424,11 @@ theorem Ledger.recordChecked_rejects_conflict (ledger : Ledger)
     (hEntry : (oid, existing) ∈ ledger.entries)
     (hDifferent : existing ≠ change) :
     ledger.recordChecked oid change = none := by
-  have hConflict :
-      ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change :=
-    ⟨existing, hEntry, hDifferent⟩
-  simp [Ledger.recordChecked, hConflict]
+  have hAny :
+      ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true := by
+    rw [List.any_eq_true]
+    exact ⟨(oid, existing), hEntry, decide_eq_true ⟨rfl, hDifferent⟩⟩
+  rw [Ledger.recordChecked, if_pos hAny]
 
 /-- If no conflicting association exists, the checked write returns the
     duplicate-suppressing update. This does not claim that the external
@@ -294,7 +439,48 @@ theorem Ledger.recordChecked_accepts_consistent (ledger : Ledger)
       ¬ ∃ previous, (oid, previous) ∈ ledger.entries ∧ previous ≠ change) :
     ledger.recordChecked oid change =
       some (ledger.recordIfAbsent oid change) := by
-  simp [Ledger.recordChecked, hNoConflict]
+  have hAny :
+      ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = false := by
+    cases hh :
+        ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) with
+    | false => rfl
+    | true =>
+        rw [List.any_eq_true] at hh
+        obtain ⟨pair, hmem, hp⟩ := hh
+        have hp' : pair.1 = oid ∧ pair.2 ≠ change := of_decide_eq_true hp
+        have hmem' : (oid, pair.2) ∈ ledger.entries := by
+          rw [← hp'.1]
+          exact hmem
+        exact (hNoConflict ⟨pair.2, hmem', hp'.2⟩).elim
+  have hne :
+      ¬(ledger.entries.any (fun entry => entry.1 = oid ∧ entry.2 ≠ change) = true) := by
+    rw [hAny]
+    exact fun h => Bool.noConfusion h
+  rw [Ledger.recordChecked, if_neg hne]
+
+/-- A ledger with a single mapping (0 → 0). -/
+def oneEntryLedger : Ledger where
+  entries := [(0, 0)]
+
+example : oneEntryLedger.Functional := by
+  intro oid c₁ c₂ h₁ h₂
+  simp only [oneEntryLedger, List.mem_singleton, Prod.mk.injEq] at h₁ h₂
+  exact h₁.2.trans h₂.2.symm
+
+/-- A conflicting write (same OID, different change) fails closed on the toy
+    ledger, by direct computation. -/
+example : oneEntryLedger.recordChecked 0 1 = none := rfl
+
+/-- A duplicate-consistent write is accepted, by direct computation. -/
+example :
+    oneEntryLedger.recordChecked 0 0 =
+      some (oneEntryLedger.recordIfAbsent 0 0) := rfl
+
+/-- Idempotence instantiated on the toy ledger. -/
+example :
+    (oneEntryLedger.recordIfAbsent 0 0).recordIfAbsent 0 0 =
+      oneEntryLedger.recordIfAbsent 0 0 :=
+  Ledger.recordIfAbsent_idempotent oneEntryLedger 0 0
 
 /-- A mapping observation collected from one import operation. -/
 structure MappingObservation where
@@ -304,12 +490,15 @@ structure MappingObservation where
   after : List ChangeId
 
 /-- Singleton delta condition for deriving a mapping from before/after lists.
-    Callers must canonicalize and deduplicate these lists before using this
-    condition as a set difference. -/
+    Canonicity is typed, not documentary: both lists must be duplicate-free
+    (`Nodup`), so the set-difference interpretation cannot be broken by
+    duplicated entries. -/
 def IsSingletonDelta (obs : MappingObservation) : Prop :=
   obs.change ∈ obs.after ∧
   obs.change ∉ obs.before ∧
-  ∀ c, c ∈ obs.after → c ∉ obs.before → c = obs.change
+  (∀ c, c ∈ obs.after → c ∉ obs.before → c = obs.change) ∧
+  obs.before.Nodup ∧
+  obs.after.Nodup
 
 /-- If a before/after observation satisfies the singleton-delta contract,
     the newly introduced change is the unique member of the set difference.
@@ -319,7 +508,7 @@ theorem singleton_delta_unique (obs : MappingObservation)
     (hdelta : IsSingletonDelta obs) (candidate : ChangeId)
     (hafter : candidate ∈ obs.after)
     (hnew : candidate ∉ obs.before) : candidate = obs.change :=
-  hdelta.2.2 candidate hafter hnew
+  hdelta.2.2.1 candidate hafter hnew
 
 /-- Two observations with the same canonical before/after set difference
     cannot report different changes if both satisfy the singleton-delta
@@ -343,8 +532,42 @@ theorem singleton_delta_same_difference
     rw [hBefore]
     exact h₂.2.1
   have h₁eq : obs₁.change = obs₂.change :=
-    h₂.2.2 obs₁.change h₁in h₁new
+    h₂.2.2.1 obs₁.change h₁in h₁new
   exact h₁eq
+
+/-- A canonical singleton delta on concrete lists: only change 7 is new in
+    `after`, both lists are duplicate-free. -/
+def toyDelta : MappingObservation where
+  gitOid := 0
+  change := 7
+  before := [1, 2, 3]
+  after := [1, 2, 3, 7]
+
+theorem toyDelta_is_singleton : IsSingletonDelta toyDelta := by
+  refine ⟨?_, ?_, ?_, by simp, by simp⟩
+  · decide
+  · decide
+  · intro c hc hnc
+    simp only [toyDelta] at hc hnc ⊢
+    by_cases h7 : c = 7
+    · exact h7
+    · exfalso
+      cases hc with
+      | head => exact hnc (List.Mem.head _)
+      | tail hc => cases hc with
+        | head => exact hnc (List.Mem.tail _ (List.Mem.head _))
+        | tail hc => cases hc with
+          | head => exact hnc (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
+          | tail hc => cases hc with
+            | head => exact h7 rfl
+            | tail hc => cases hc
+
+/-- The delta lemma identifies the new change on the toy delta. -/
+example (candidate : ChangeId)
+    (hafter : candidate ∈ toyDelta.after)
+    (hnew : candidate ∉ toyDelta.before) :
+    candidate = toyDelta.change :=
+  singleton_delta_unique toyDelta toyDelta_is_singleton candidate hafter hnew
 
 /-! ## 5. Import protocol and fail-closed publication -/
 
@@ -375,7 +598,22 @@ theorem imported_record_has_mapping (r : ImportRecord)
   | none =>
       simp [RecordWellFormed, hs, hm] at h
   | some change =>
-      exact ⟨change, hm⟩
+      refine ⟨change, ?_⟩
+      rw [← hm]
+
+/-- Well-formed and malformed import records, by computation. -/
+example :
+    RecordWellFormed { gitOid := 0, status := .imported, mappedChange := some 5 } :=
+  True.intro
+
+example :
+    ¬ RecordWellFormed { gitOid := 0, status := .imported, mappedChange := none } :=
+  fun h => h
+
+example :
+    ∃ change, ({ gitOid := 0, status := .imported,
+                  mappedChange := some 5 } : ImportRecord).mappedChange = some change :=
+  imported_record_has_mapping _ True.intro rfl
 
 /-! ## 6. Required correctness obligations (not yet proved)
 
@@ -446,6 +684,12 @@ theorem observableTreeEq_trans {a b c : ObservableTree}
     ObservableTreeEq a c := by
   intro path
   exact Eq.trans (hab path) (hbc path)
+
+/-- Empty observable trees are observationally equal; this exercises the
+    section 7 definitions on a concrete instance. -/
+example :
+    ObservableTreeEq (fun _ => none) (fun _ => none) :=
+  observableTreeEq_refl _
 
 /-- Native conflict classes are labels for operations that the selected Pijul
     semantics actually reports as conflicting. They are not inferred from Git
