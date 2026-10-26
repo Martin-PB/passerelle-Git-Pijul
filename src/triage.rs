@@ -82,7 +82,7 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         if trimmed.is_empty() || trimmed.starts_with("(fix conflicts") {
             continue;
         }
-        if !line.starts_with(' ') && !line.starts_with('\\t') {
+        if !line.starts_with(' ') && !line.starts_with('\t') {
             break;
         }
         paths.push(trimmed.to_owned());
