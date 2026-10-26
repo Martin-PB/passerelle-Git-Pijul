@@ -65,10 +65,9 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
 
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
     // The caller has already successfully switched to `integration`.
-    // Pijul beta.24's `status` output does not consistently include a branch
-    // or channel header, so channel identity is established by the successful
-    // switch command rather than inferred from human-readable status output.
-
+    // Pijul beta.24 does not always include an explicit conflict section.
+    // In that case, dirty/untracked paths must still be surfaced for operator
+    // review; they must never be mistaken for a clean integration.
     let mut in_conflicts = false;
     let mut paths = Vec::new();
     for line in status.lines() {
@@ -83,28 +82,61 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         if trimmed.is_empty() || trimmed.starts_with("(fix conflicts") {
             continue;
         }
-        if !line.starts_with(' ') && !line.starts_with('\t') {
+        if !line.starts_with(' ') && !line.starts_with('\\t') {
             break;
         }
         paths.push(trimmed.to_owned());
     }
 
-    if !in_conflicts {
-        if status.contains("Unrecorded changes") || status.contains("Untracked files") {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "integration has unrecorded or untracked work but no parseable unresolved-conflict section; refusing to classify it as clean. Raw `pijul status` output follows:\n{}",
-                    status.trim()
-                ),
-            ));
+    let dirty_without_conflict_section = !in_conflicts
+        && (status.contains("Changes not recorded:") || status.contains("Untracked files:"));
+    if dirty_without_conflict_section {
+        let mut section = "";
+        for line in status.lines() {
+            let trimmed = line.trim();
+            match trimmed {
+                "Changes not recorded:" => {
+                    section = "changes";
+                    continue;
+                }
+                "Untracked files:" => {
+                    section = "untracked";
+                    continue;
+                }
+                _ => {}
+            }
+            if trimmed.is_empty() {
+                if !section.is_empty() {
+                    section = "";
+                }
+                continue;
+            }
+            if section.is_empty() || trimmed.starts_with('(') {
+                continue;
+            }
+            let path = if section == "changes" {
+                // Status entries such as "moved   docs" put the path last.
+                trimmed.split_whitespace().last().unwrap_or(trimmed)
+            } else {
+                trimmed
+            };
+            paths.push(path.to_owned());
         }
+        paths.sort();
+        paths.dedup();
+    }
+
+    if !in_conflicts && !dirty_without_conflict_section {
         return Ok(vec![Triage::Clean]);
     }
     if paths.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "pijul status reported unresolved conflicts but no conflict paths could be parsed",
+            if in_conflicts {
+                "pijul status reported unresolved conflicts but no conflict paths could be parsed"
+            } else {
+                "pijul status reports unrecorded or untracked work but no paths could be parsed"
+            },
         ));
     }
 
@@ -114,20 +146,28 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         let safe = relative.components().all(|component| {
             matches!(component, Component::Normal(_) | Component::CurDir)
         });
-        let conflict_state = if safe {
+        let file_contents = if safe {
             let file = workdir.join(relative);
             match std::fs::symlink_metadata(&file) {
                 Ok(metadata) if metadata.file_type().is_file() => {
                     std::fs::read_to_string(&file).unwrap_or_else(|_| {
-                        "Pijul reported a conflict; file is binary, unreadable, or unavailable."
+                        "Pijul reported a path that is binary, unreadable, or unavailable."
                             .into()
                     })
                 }
-                _ => "Pijul reported a conflict; path is not a regular file, so content was not read."
+                _ => "Pijul reported this path, but it is not a regular file; content was not read."
                     .into(),
             }
         } else {
-            "Pijul reported a conflict at a non-relative path; content not read.".into()
+            "Pijul reported a non-relative path; content was not read.".into()
+        };
+        let conflict_state = if dirty_without_conflict_section {
+            format!(
+                "Pijul status did not expose an explicit unresolved-conflict section.                  This path is reported as dirty/untracked and requires operator review.\n\n{}",
+                file_contents
+            )
+        } else {
+            file_contents
         };
         reports.push(Triage::Operator {
             report: ConflictReport {
@@ -139,7 +179,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     }
     Ok(reports)
 }
-
 
 #[cfg(test)]
 mod tests {
