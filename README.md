@@ -58,7 +58,7 @@ branches numérotées — le cœur, lui, n'exige rien de tel.
 ## État d'implémentation
 
 - **Ingest Git (première tranche)** : implémentation en cours sur une branche dédiée. Le miroir bare est initialisé explicitement, les refs sont épinglées, et une tête différente du SHA attendu est refusée. Des tests d'intégration sur dépôts synthétiques couvrent ces cas.
-- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Le premier triage lit `pijul status` et bloque l’export si des conflits sont signalés. Ce chemin n’est pas encore validé à l’exécution et les commits de merge Git sont refusés explicitement.
+- **Traduction Git → Pijul (premier chemin câblé)** : `merge-prs` résout les refs épinglées, importe base et têtes via `pijul git`, vérifie le mapping commit-parent et prépare les channels `pr-<n>` / `integration`. Le premier triage lit `pijul status` : les conflits explicitement signalés sont exposés à l’opérateur ; si beta.24 signale seulement des modifications non enregistrées ou des fichiers non suivis, ces chemins sont aussi envoyés en revue opérateur sans être présentés comme des conflits sémantiques. L’export refuse ces états non propres. Les tests locaux couvrent le triage ciblé et la relance de branches sœurs, mais pas le round-trip complet ; les commits de merge Git sont refusés explicitement.
 - **Export Pijul → Git** : un adaptateur expérimental `linear` peut invoquer un binaire externe `pijul-export` (non embarqué), puis vérifie l’ascendance depuis la base et l’égalité de l’arbre Git avec le working copy Pijul. `merge-topology` reste non implémenté. Aucun push distant n’est effectué.
 - **P0 round-trip** : non validé. Le test de bout en bout reste ignoré tant que l'import et l'export réels ne sont pas implémentés. Aucun résultat NOT RUN ne doit être présenté comme PASS.
 
@@ -122,16 +122,20 @@ passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
 ```
 
 Le pipeline d'import est partiellement câblé. `operator queue` lit les conflits
-du channel `integration` ; `operator submit` applique un change déjà enregistré
-et ajoute des événements à `gateway-audit.jsonl`. La file persistante et
-l'attribution des conflits aux PRs restent à faire. Le mode `linear` peut
-tenter un export local si `pijul-export` est installé séparément ;
-`merge-topology` reste incomplet :
+du channel `integration` ; `operator submit` exige le chemin exact d'un conflit
+affiché par cette commande, vérifie qu'il est encore présent, applique le change,
+puis relance le triage. La commande ne réussit que si le triage confirme que ce
+chemin n'est plus en conflit ; sinon, elle renvoie une erreur et journalise
+l'échec ou le conflit persistant dans `gateway-audit.jsonl`. Cette vérification
+n'est pas encore une file persistante : les conflits sont relus depuis Pijul.
+L'attribution des conflits aux PRs reste à faire. Le mode `linear` peut tenter
+un export local si `pijul-export` est installé séparément ; `merge-topology`
+reste incomplet :
 
 ```sh
 passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
 passerelle operator queue
-passerelle operator submit --change <hash> --path <chemin-exact-du-conflit> --note "choix de l'approche de la branche a"
+passerelle operator submit --path src/lib.rs --change <hash> --note "choix de l'approche de la branche a"
 
 # Greffon frontal (exemple futur) : un hébergement traduit sa sémantique en refs.
 passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
@@ -155,47 +159,6 @@ préservation et le triage, mais il ne fournit pas encore de commande de répara
 du ledger. Ne pas supprimer manuellement l'intention ni inventer un mapping
 sans preuve suffisante. Cette version n'automatise pas cette réparation et ne
 prétend pas pouvoir retrouver un channel OID que Pijul aurait supprimé.
-
-## Vérification locale Linux
-
-Le protocole reproductible pour tester Rust, compiler la bibliothèque Lean et recueillir les journaux est documenté dans [`docs/local-verification.md`](docs/local-verification.md).
-
-Depuis la racine du dépôt :
-
-```sh
-bash scripts/verify-local.sh
-```
-
-Le script n'installe pas les outils et ne déclenche aucune GitHub Action. Une exécution incomplète retourne un code non nul. Le build Lean valide uniquement les théorèmes du modèle abstrait ; la preuve de raffinement vers le moteur Pijul réel et le round-trip de bout en bout restent des objectifs non démontrés.
-
-## Usage
-
-L’ingest générique prend un remote et des mappings source=destination, sans dépendre
-d’un hébergeur particulier. Pour utiliser ensuite `merge-prs`, épingle la base
-sous `refs/remotes/base/<nom>` et les têtes sous `refs/remotes/pr/<numéro>` :
-
-```sh
-passerelle ingest --remote ../repo-source --workdir .gateway-mirror \\
-  --ref refs/heads/main=refs/remotes/base/main \\
-  --ref refs/heads/pr-42=refs/remotes/pr/42 \\
-  --ref refs/heads/pr-43=refs/remotes/pr/43
-```
-
-Le pipeline d'import est partiellement câblé. `operator queue` lit les conflits
-du channel `integration` ; `operator submit` applique un change déjà enregistré
-et ajoute des événements à `gateway-audit.jsonl`. La file persistante et
-l'attribution des conflits aux PRs restent à faire. Le mode `linear` peut
-tenter un export local si `pijul-export` est installé séparément ;
-`merge-topology` reste incomplet :
-
-```sh
-passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
-passerelle operator queue
-passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
-
-# Greffon frontal (exemple futur) : un hébergement traduit sa sémantique en refs.
-passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
-```
 
 ## Roadmap
 
