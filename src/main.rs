@@ -177,8 +177,7 @@ fn merge_prs(args: &[String]) {
         eprintln!("merge-prs requires at least one PR number");
         std::process::exit(2);
     }
-    // Lock order is always mirror first, then workspace. `ingest` takes only
-    // the mirror lock; operator commands take only the workspace lock.
+    // Lock order is always mirror first, then workspace.
     let _mirror_lock = WorkspaceLock::for_mirror(&mirror).unwrap_or_else(|error| {
         eprintln!("cannot acquire Git mirror lock: {error}");
         std::process::exit(1);
