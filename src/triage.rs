@@ -106,9 +106,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
                 _ => {}
             }
             if trimmed.is_empty() {
-                if !section.is_empty() {
-                    section = "";
-                }
                 continue;
             }
             if section.is_empty() || trimmed.starts_with('(') {
