@@ -119,6 +119,27 @@ fn working_tree_id(mirror: &Path, pijul_repo: &Path, scratch: &Path) -> std::io:
     result
 }
 
+/// Pijul beta.24 uses the heading "Changes not recorded:" for modified
+/// working-copy content. Treat both that format and older/alternate status
+/// headings as dirty; export must fail closed even if there are no untracked
+/// files to trigger the separate guard.
+fn status_has_unrecorded_work(status: &str) -> bool {
+    status.contains("Unresolved conflicts:")
+        || status.contains("Unrecorded changes")
+        || status.contains("Changes not recorded:")
+        || status.contains("Untracked files:")
+}
+
+/// A successful channel switch establishes the active channel. beta.24 may
+/// omit the channel header, but arbitrary non-empty status output is unknown.
+fn status_has_unrecognized_output(status: &str) -> bool {
+    status.lines().map(str::trim).any(|line| {
+        !line.is_empty()
+            && line != "On channel: integration"
+            && line != "On branch integration"
+    })
+}
+
 /// Export the integration channel to a local Git branch using an independently
 /// installed `pijul-export` executable. It validates both base ancestry and
 /// the final tree before publishing the ref. It never pushes to a remote.
@@ -172,24 +193,16 @@ pub fn export_linear_with_pijul_export(
         ));
     }
     let status_text = String::from_utf8_lossy(&status.stdout);
-    let identifies_integration = status_text.lines().any(|line| {
-        let line = line.trim();
-        (line.starts_with("On branch ") || line.starts_with("On channel "))
-            && line.contains("integration")
-    });
-    if !identifies_integration {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "pijul status did not identify integration; refusing export",
-        ));
-    }
-    if status_text.contains("Unresolved conflicts:")
-        || status_text.contains("Unrecorded changes")
-        || status_text.contains("Untracked files")
-    {
+    if status_has_unrecorded_work(&status_text) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "integration has unresolved conflicts or unrecorded changes; refusing Git export",
+        ));
+    }
+    if status_has_unrecognized_output(&status_text) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "unrecognized pijul status output; refusing Git export",
         ));
     }
 
@@ -350,6 +363,33 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn export_status_guard_recognizes_pijul_beta24_dirty_heading() {
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\n\nChanges not recorded:\n        modified file.txt\n"
+        ));
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\n\nUntracked files:\n        new.txt\n"
+        ));
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\n\nUnresolved conflicts:\n        file.txt\n"
+        ));
+        assert!(!super::status_has_unrecorded_work("On channel: integration\n"));
+    }
+
+    #[test]
+    fn export_status_guard_accepts_empty_or_known_integration_header() {
+        assert!(!super::status_has_unrecognized_output(""));
+        assert!(!super::status_has_unrecognized_output("On channel: integration\n"));
+        assert!(!super::status_has_unrecognized_output("On branch integration\n"));
+    }
+
+    #[test]
+    fn export_status_guard_rejects_unknown_status_output() {
+        assert!(super::status_has_unrecognized_output("unexpected status output\n"));
+        assert!(super::status_has_unrecognized_output("On channel: other\n"));
     }
 
     #[test]
