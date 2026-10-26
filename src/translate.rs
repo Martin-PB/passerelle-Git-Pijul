@@ -407,7 +407,6 @@ pub fn translate_pr_from_mirror(
                 ));
             }
             import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
-            channels = list_channels(pijul_repo)?;
         }
         ensure_channel_from(pijul_repo, &base.sha, &base_channel)?;
         channels = list_channels(pijul_repo)?;
@@ -489,7 +488,7 @@ pub fn translate_pr_from_mirror(
         // beta.24 may remove that channel after importing a child, so restore
         // it from the durable snapshot before every import.
         ensure_channel_from(pijul_repo, &parent_snapshot, parent_sha)?;
-        let before = changes_on_channel(pijul_repo, parent_sha)?;
+        let before = changes_on_channel(pijul_repo, parent_channel)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
