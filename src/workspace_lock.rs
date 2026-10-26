@@ -21,22 +21,54 @@ impl WorkspaceLock {
     pub fn for_workspace(workdir: &Path) -> io::Result<Self> {
         let bridge_dir = workdir.join(".bridge");
         fs::create_dir_all(&bridge_dir)?;
-        Self::acquire(&bridge_dir.join("workspace.lock"))
+        // Canonicalize after creation so relative/absolute paths and symlink
+        // aliases for the same workspace share one lock identity.
+        let canonical_workdir = fs::canonicalize(workdir)?;
+        Self::acquire(&canonical_workdir.join(".bridge").join("workspace.lock"))
     }
 
     /// Lock a bare Git mirror against concurrent fetches and reads by the CLI.
     ///
     /// The lock lives beside the mirror, not inside the bare repository.
     pub fn for_mirror(mirror: &Path) -> io::Result<Self> {
-        let parent = mirror
+        let requested_parent = mirror
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let name = mirror
+        fs::create_dir_all(requested_parent)?;
+
+        // If the mirror already exists, canonicalize the mirror itself so a
+        // symlink alias resolves to the same lock as the target. For a mirror
+        // that has not been created yet, canonicalize its parent and append the
+        // requested final component. Broken symlinks and other metadata errors
+        // fail closed rather than creating a second lock identity.
+        let normalized_mirror = match fs::symlink_metadata(mirror) {
+            Ok(_) => fs::canonicalize(mirror)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let parent = fs::canonicalize(requested_parent)?;
+                let name = mirror
+                    .file_name()
+                    .ok_or_else(|| io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Git mirror path must have a final path component",
+                    ))?;
+                parent.join(name)
+            }
+            Err(error) => return Err(error),
+        };
+        let parent = normalized_mirror
+            .parent()
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "normalized Git mirror path has no parent",
+            ))?;
+        let name = normalized_mirror
             .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new("git-mirror"))
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "normalized Git mirror path has no final component",
+            ))?
             .to_string_lossy();
-        fs::create_dir_all(parent)?;
         Self::acquire(&parent.join(format!("{name}.lock")))
     }
 
@@ -96,5 +128,51 @@ mod tests {
         let lock = WorkspaceLock::for_mirror(&mirror).unwrap();
         assert_eq!(lock.path().parent(), Some(dir.path()));
         assert_ne!(lock.path().parent(), Some(mirror.as_path()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_lock_normalizes_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let real = dir.path().join("real-workspace");
+        let alias = dir.path().join("workspace-alias");
+        std::fs::create_dir(&real).unwrap();
+        symlink(&real, &alias).unwrap();
+
+        let first = WorkspaceLock::for_workspace(&real).unwrap();
+        let error = WorkspaceLock::for_workspace(&alias).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        drop(first);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mirror_lock_normalizes_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let mirror = dir.path().join("mirror.git");
+        let alias = dir.path().join("mirror-alias.git");
+        std::fs::create_dir(&mirror).unwrap();
+        symlink(&mirror, &alias).unwrap();
+
+        let first = WorkspaceLock::for_mirror(&mirror).unwrap();
+        let error = WorkspaceLock::for_mirror(&alias).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        drop(first);
+    }
+
+    #[test]
+    fn mirror_lock_normalizes_relative_and_absolute_paths() {
+        let dir = tempdir().unwrap();
+        let mirror = dir.path().join("mirror.git");
+        std::fs::create_dir(&mirror).unwrap();
+        let absolute = WorkspaceLock::for_mirror(&mirror).unwrap();
+        let relative_path = std::env::current_dir().unwrap().join(&mirror);
+        let error = WorkspaceLock::for_mirror(&relative_path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        drop(absolute);
     }
 }
