@@ -119,6 +119,17 @@ fn working_tree_id(mirror: &Path, pijul_repo: &Path, scratch: &Path) -> std::io:
     result
 }
 
+/// Pijul beta.24 uses the heading "Changes not recorded:" for modified
+/// working-copy content. Treat both that format and older/alternate status
+/// headings as dirty; export must fail closed even if there are no untracked
+/// files to trigger the separate guard.
+fn status_has_unrecorded_work(status: &str) -> bool {
+    status.contains("Unresolved conflicts:")
+        || status.contains("Unrecorded changes")
+        || status.contains("Changes not recorded:")
+        || status.contains("Untracked files:")
+}
+
 /// Export the integration channel to a local Git branch using an independently
 /// installed `pijul-export` executable. It validates both base ancestry and
 /// the final tree before publishing the ref. It never pushes to a remote.
@@ -183,10 +194,7 @@ pub fn export_linear_with_pijul_export(
             "pijul status did not identify integration; refusing export",
         ));
     }
-    if status_text.contains("Unresolved conflicts:")
-        || status_text.contains("Unrecorded changes")
-        || status_text.contains("Untracked files")
-    {
+    if status_has_unrecorded_work(&status_text) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "integration has unresolved conflicts or unrecorded changes; refusing Git export",
@@ -350,6 +358,20 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn export_status_guard_recognizes_pijul_beta24_dirty_heading() {
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\\n\\nChanges not recorded:\\n        modified file.txt\\n"
+        ));
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\\n\\nUntracked files:\\n        new.txt\\n"
+        ));
+        assert!(super::status_has_unrecorded_work(
+            "On channel: integration\\n\\nUnresolved conflicts:\\n        file.txt\\n"
+        ));
+        assert!(!super::status_has_unrecorded_work("On channel: integration\\n"));
     }
 
     #[test]
