@@ -160,7 +160,7 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         };
         let conflict_state = if dirty_without_conflict_section {
             format!(
-                "Pijul status did not expose an explicit unresolved-conflict section.                  This path is reported as dirty/untracked and requires operator review.\n\n{}",
+                "Pijul status did not expose an explicit unresolved-conflict section. This path is reported as dirty/untracked and requires operator review.\n\n{}",
                 file_contents
             )
         } else {
