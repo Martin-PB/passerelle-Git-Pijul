@@ -361,6 +361,107 @@ pub fn translate_pr_from_mirror(
     let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
     let ledger_file = crate::ledger::ledger_path(ledger_root);
     let intent_store = ImportIntentStore::new(ledger_root);
+
+    // Quarantine the entire workspace if any earlier import is unresolved.
+    // A pending intent for a different SHA can still represent a mutation to
+    // the shared Pijul repository, so checking only the current loop SHA is
+    // insufficient. The sole automatic recovery is an exact intent whose
+    // mapping is already durable in the ledger.
+    let pending_intents = intent_store.pending_intents()?;
+    if !pending_intents.is_empty() {
+        let durable_ledger = Ledger::load(&ledger_file)?;
+        for intent in pending_intents {
+            let Some(change) = intent.pijul_change.as_deref() else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    format!(
+                        "workspace has unresolved import intent for {}; no durable change mapping exists, recover explicitly before importing any SHA",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            let Some(durable_entry) = durable_ledger.get(&intent.git_sha) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    format!(
+                        "workspace has unresolved import intent for {}; ledger mapping is absent, recover explicitly before importing any SHA",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            if durable_entry.git_sha != intent.git_sha
+                || durable_entry.direction != Direction::GitToPijul
+                || durable_entry.pr != Some(intent.pr)
+                || durable_entry.pijul_change != change
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "durable ledger entry does not exactly match pending import intent for {}; workspace quarantined",
+                        intent.git_sha
+                    ),
+                ));
+            }
+
+            let parent_line = git(
+                git_mirror,
+                &["rev-list", "--parents", "-n", "1", &intent.git_sha],
+            )?;
+            let parts: Vec<_> = parent_line.split_whitespace().collect();
+            if parts.len() != 2 || intent.parent_sha != parts[1] {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "pending import intent for {} does not match its current Git parent",
+                        intent.git_sha
+                    ),
+                ));
+            }
+            let resolved_base = git(
+                git_mirror,
+                &["rev-parse", &format!("{}^{{commit}}", intent.base_sha)],
+            )?;
+            if resolved_base != intent.base_sha {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "pending import intent for {} references an unavailable or non-canonical base",
+                        intent.git_sha
+                    ),
+                ));
+            }
+
+            let Some(memory_entry) = ledger.get(&intent.git_sha) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "durable mapping for pending intent {} is absent from the in-memory ledger; reload before retrying",
+                        intent.git_sha
+                    ),
+                ));
+            };
+            if memory_entry.git_sha != durable_entry.git_sha
+                || memory_entry.direction != durable_entry.direction
+                || memory_entry.pr != durable_entry.pr
+                || memory_entry.pijul_change != durable_entry.pijul_change
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "in-memory and durable ledger mappings differ for pending intent {}; workspace quarantined",
+                        intent.git_sha
+                    ),
+                ));
+            }
+            intent_store.reconcile_committed(
+                &intent,
+                &durable_entry.git_sha,
+                durable_entry.pr,
+                &durable_entry.pijul_change,
+            )?;
+        }
+    }
+
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
         // refer to channels it has already dropped. The retained PR tip is
