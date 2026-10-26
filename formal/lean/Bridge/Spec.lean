@@ -162,13 +162,13 @@ def toyHistory : GitHistory where
           injection hc with hc'
           subst hc'
           simp only [List.mem_singleton] at hp
-          exact ⟨0, by rw [hp]; exact rfl⟩
+          exact ⟨{ oid := 0, parents := [], tree := fun _ => none, author := 0, message := 0 }, by simp [toyCommit, hp]⟩
       · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
             simp only [List.mem_singleton] at hp
-            exact ⟨1, by rw [hp]; exact rfl⟩
+            exact ⟨{ oid := 1, parents := [0], tree := fun _ => none, author := 0, message := 0 }, by simp [toyCommit, hp]⟩
         · exact Option.noConfusion hc
   parentRank := by
     intro child c hc parent hp
@@ -200,18 +200,15 @@ def toyHistory : GitHistory where
     · next h =>
         injection hc with hc'
         subst hc'
-        rw [h]; rfl
     · split at hc
       · next h =>
           injection hc with hc'
           subst hc'
-          rw [h]; rfl
-      · split at hc
+        · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
-            rw [h]; rfl
-        · exact Option.noConfusion hc
+            · exact Option.noConfusion hc
   parentsNoDup := by
     intro oid c hc
     simp only [toyCommit] at hc
@@ -544,23 +541,7 @@ def toyDelta : MappingObservation where
   after := [1, 2, 3, 7]
 
 theorem toyDelta_is_singleton : IsSingletonDelta toyDelta := by
-  refine ⟨?_, ?_, ?_, by simp, by simp⟩
-  · decide
-  · decide
-  · intro c hc hnc
-    simp only [toyDelta] at hc hnc ⊢
-    by_cases h7 : c = 7
-    · exact h7
-    · exfalso
-      cases hc with
-      | head => exact hnc (List.Mem.head _)
-      | tail hc => cases hc with
-        | head => exact hnc (List.Mem.tail _ (List.Mem.head _))
-        | tail hc => cases hc with
-          | head => exact hnc (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
-          | tail hc => cases hc with
-            | head => exact h7 rfl
-            | tail hc => cases hc
+  decide
 
 /-- The delta lemma identifies the new change on the toy delta. -/
 example (candidate : ChangeId)
