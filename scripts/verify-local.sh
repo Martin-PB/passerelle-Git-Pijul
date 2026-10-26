@@ -83,7 +83,28 @@ run_check rustfmt-check cargo fmt --all -- --check
 if [[ ! -f Cargo.lock ]]; then warn "Cargo.lock absent : Cargo résoudra les dépendances à partir des contraintes de Cargo.toml ; la reproductibilité complète exige de versionner Cargo.lock."; fi
 run_check cargo-test-all-targets cargo test --all-targets
 
-# 2. Lean formalization. Lake uses the repository's lean-toolchain pin.
+# 2. Optional Pijul integration tests. Git-only corpus tests run in the default
+# suite; tests that need the Pijul binary remain ignored unless explicitly selected.
+if [[ "${RUN_PIJUL_IMPORT_TESTS:-0}" == "1" ]]; then
+  if ! has pijul; then
+    say "RESULT: FAIL pijul-import-triage — RUN_PIJUL_IMPORT_TESTS=1 mais pijul est absent."
+    FAIL=$((FAIL + 1))
+  else
+    PIJUL_VERSION="$(pijul --version 2>&1 || true)"
+    say "Pijul version: $PIJUL_VERSION"
+    if [[ "$PIJUL_VERSION" != *"1.0.0-beta.24"* ]]; then
+      say "RESULT: FAIL pijul-import-triage — ce test exige Pijul 1.0.0-beta.24."
+      FAIL=$((FAIL + 1))
+    else
+      run_check pijul-import-triage cargo test --test roundtrip synthetic_import_pipeline_exposes_native_pijul_conflicts -- --ignored --nocapture
+      run_check sibling-branch-rerun cargo test --test roundtrip sibling_branches_then_rerun_preserves_base_and_mapping -- --ignored --nocapture
+    fi
+  fi
+else
+  skip_check pijul-import-tests "opt-in : lancer avec RUN_PIJUL_IMPORT_TESTS=1 pour exécuter l'import/triage Pijul et le scénario branches sœurs + rerun ; le corpus Git tourne dans cargo test --all-targets."
+fi
+
+# 3. Lean formalization. Lake uses the repository's lean-toolchain pin.
 if has lake; then
   run_check lean-lake-build lake build Bridge
 else
@@ -91,32 +112,29 @@ else
   warn "Aucune preuve Lean vérifiée durant cette exécution."
 fi
 
-# 3. Optional ignored end-to-end tests, only when explicitly requested.
-# These may require Pijul beta.24 and an external pijul-export executable.
+# 4. Optional end-to-end round-trip. This remains a separate, known-incomplete
+# target because the corpus currently requires explicit resolution changes.
 if [[ "${RUN_IGNORED_ROUNDTRIP:-0}" == "1" ]]; then
-  if ! has pijul; then
-    say "RESULT: FAIL ignored-roundtrip — RUN_IGNORED_ROUNDTRIP=1 mais pijul est absent."
+  if ! has pijul || ! has pijul-export; then
+    say "RESULT: FAIL ignored-roundtrip — RUN_IGNORED_ROUNDTRIP=1 exige pijul et pijul-export."
     FAIL=$((FAIL + 1))
   else
-    run_check ignored-roundtrip cargo test --test roundtrip -- --ignored --nocapture
+    run_check ignored-roundtrip cargo test --test roundtrip roundtrip_property_end_to_end -- --ignored --nocapture
   fi
 else
-  skip_check ignored-roundtrip "opt-in uniquement : lancer avec RUN_IGNORED_ROUNDTRIP=1 après installation et vérification des prérequis Pijul/exporteur."
+  skip_check ignored-roundtrip "opt-in : lancer avec RUN_IGNORED_ROUNDTRIP=1 ; ce test reste incomplet tant que les résolutions du corpus ne sont pas déterministes."
 fi
 
-# 4. Optional extra test for the multiple-sibling-branches + rerun blocker.
-# The test is ignored by default and must be explicitly enabled here; its
-# presence alone is not validation.
-if [[ "${RUN_SIBLING_RERUN_TEST:-0}" == "1" ]]; then
-  if cargo test --test roundtrip -- --list 2>&1 | tee "$LOG_DIR/roundtrip-test-list.log" | grep -Eiq 'sibling.*rerun|rerun.*sibling'; then
-    run_check sibling-branch-rerun cargo test --test roundtrip -- --ignored --nocapture sibling
-  else
-    say "RESULT: FAIL sibling-branch-rerun — aucun test explicitement nommé pour branches sœurs + rerun n'a été trouvé dans tests/roundtrip.rs."
+# 5. Backward-compatible opt-in for only the sibling-branch regression.
+if [[ "${RUN_SIBLING_RERUN_TEST:-0}" == "1" && "${RUN_PIJUL_IMPORT_TESTS:-0}" != "1" ]]; then
+  if ! has pijul; then
+    say "RESULT: FAIL sibling-branch-rerun — RUN_SIBLING_RERUN_TEST=1 mais pijul est absent."
     FAIL=$((FAIL + 1))
-    warn "Le scénario bloquant branches sœurs + rerun doit être implémenté avant de prétendre le couvrir."
+  else
+    run_check sibling-branch-rerun cargo test --test roundtrip sibling_branches_then_rerun_preserves_base_and_mapping -- --ignored --nocapture
   fi
 else
-  skip_check sibling-branch-rerun "opt-in : lancer avec RUN_SIBLING_RERUN_TEST=1 ; le script échouera si aucun test dédié n'existe."
+  skip_check sibling-branch-rerun "opt-in : lancer avec RUN_SIBLING_RERUN_TEST=1 ; déjà exécuté par RUN_PIJUL_IMPORT_TESTS=1 si ce mode est actif."
 fi
 
 say ""

@@ -1,15 +1,15 @@
 # Protocole de vérification locale Linux
 
-Ce protocole est la référence pour vérifier la branche `agent/p0-synthetic-roundtrip` de la passerelle Git–Pijul. Il ne déclenche **aucune GitHub Action**, ne pousse rien et ne modifie pas le code source pendant l'exécution.
+Ce protocole est la référence pour vérifier la branche `agent/p1-explicit-integration-test-status` de la passerelle Git–Pijul. Il ne déclenche **aucune GitHub Action**, ne pousse rien et ne modifie pas le code source pendant l'exécution.
 
 ## 1. Récupérer exactement la branche à vérifier
 
 Depuis un clone du dépôt :
 
 ```sh
-git fetch origin agent/p0-synthetic-roundtrip
-git switch agent/p0-synthetic-roundtrip
-git pull --ff-only origin agent/p0-synthetic-roundtrip
+git fetch origin agent/p1-explicit-integration-test-status
+git switch agent/p1-explicit-integration-test-status
+git pull --ff-only origin agent/p1-explicit-integration-test-status
 git status --short --branch
 git rev-parse HEAD
 ```
@@ -59,29 +59,37 @@ Les journaux sont conservés dans `.local-verification/<horodatage-UTC>/`, notam
 
 Un test ignoré ou un outil absent n'est jamais un PASS. Lire le résumé **et** les journaux de la commande qui a échoué.
 
-## 4. Tests de bout en bout optionnels
+## 4. Tests d'intégration Pijul optionnels
 
-N'activer les tests ignorés qu'après avoir vérifié la présence et la version des outils :
+Les tests qui exigent le vrai moteur Pijul sont `#[ignore]` : `cargo test --all-targets` les compte comme ignorés, jamais comme des tests réussis. Le corpus Git seul (`corpus_scenarios_are_really_conflicting`) s'exécute dans la suite normale, car il ne requiert que Git. Pour lancer l'import/triage Pijul et la régression branches sœurs + rerun :
 
 ```sh
 pijul --version
+RUN_PIJUL_IMPORT_TESTS=1 bash scripts/verify-local.sh
+```
+
+Cette suite exige explicitement Pijul `1.0.0-beta.24`. Le script échoue si la suite est demandée avec une version différente ou si Pijul manque ; les tests ne se terminent plus silencieusement en succès lorsque les outils sont absents. Le script ne relance pas le corpus Git dans ce mode, puisqu'il a déjà été exécuté par `cargo test --all-targets`.
+
+Le round-trip complet reste une suite distincte :
+
+```sh
 command -v pijul-export
 RUN_IGNORED_ROUNDTRIP=1 bash scripts/verify-local.sh
 ```
 
-Le test `roundtrip_property_end_to_end` est actuellement ignoré par conception tant que l'import, la résolution déterministe du corpus et l'export ne sont pas validés. Son activation peut donc révéler un blocage de conception ou d'implémentation ; ne pas supprimer `#[ignore]` simplement pour obtenir un résultat vert.
+Le test `roundtrip_property_end_to_end` est ignoré par conception tant que la résolution déterministe du corpus et l'export ne sont pas validés. Son activation peut donc révéler un blocage de conception ou d'implémentation ; ne pas supprimer `#[ignore]` simplement pour obtenir un résultat vert.
 
 ## 5. Test bloquant branches sœurs + réexécution
 
 Le défaut à lever est précis : importer deux branches sœurs successivement dans un même dépôt Pijul beta.24 peut supprimer le channel de leur base commune ; le cache OID peut toutefois persister. Le second import ou un rerun depuis la base peut alors échouer. C'est une hypothèse de conception à vérifier sur le binaire réel, pas une preuve issue du seul code source.
 
-Le script accepte :
+Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est écrit dans `tests/roundtrip.rs`, ignoré par défaut et vérifie explicitement que la version observée est `1.0.0-beta.24`. Il est lancé directement par `RUN_PIJUL_IMPORT_TESTS=1` ou seul via :
 
 ```sh
 RUN_SIBLING_RERUN_TEST=1 bash scripts/verify-local.sh
 ```
 
-Le test dédié `sibling_branches_then_rerun_preserves_base_and_mapping` est maintenant écrit dans `tests/roundtrip.rs`, ignoré par défaut et vérifie explicitement que la version observée est `1.0.0-beta.24`. Le script vérifie son existence, puis le lance explicitement avec `--ignored`. Ce test n'a pas encore été exécuté : sa présence ne valide pas le scénario.
+Le script cible le nom exact du test avec `--ignored`. Ce test n'a pas encore été exécuté : sa présence ne valide pas le scénario.
 
 Le test utilise uniquement des dépôts synthétiques et couvre :
 1. une base commune et deux branches sœurs distinctes ;
