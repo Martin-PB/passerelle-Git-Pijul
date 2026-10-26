@@ -803,15 +803,30 @@ def TraceConflictsHaveEvidence (trace : PijulOperationTrace) : Prop :=
       step.leftChange = conflict.leftChange ∧
       step.rightChange = conflict.rightChange
 
-/-- A conflict scenario pairs a concrete Git merge attempt with an explicit
-    Pijul operation trace over the corresponding concurrent work. The
-    expected Pijul outcome is scenario-specific; Git and Pijul conflict
-    booleans are deliberately not assumed equivalent. -/
-structure ConflictScenario where
+/-- The Git operation whose conflict result is paired with a Pijul trace.
+    Naming the operation and all three commit identities prevents a scenario
+    from referring to an unqualified conflict boolean. The result is an
+    observation supplied by the adapter; its connection to an actual Git
+    process/output remains a concrete-refinement obligation. -/
+inductive GitMergeOperation where
+  | mergeTree
+  | mergeRecursive
+  deriving DecidableEq, Repr
+
+structure GitMergeObservation where
   base : Oid
   leftTip : Oid
   rightTip : Oid
-  gitMergeReportedConflict : Bool
+  operation : GitMergeOperation
+  reportedConflict : Bool
+  deriving DecidableEq, Repr
+
+/-- A conflict scenario pairs a named Git merge observation with an explicit
+    Pijul operation trace over the corresponding concurrent work. The expected
+    Pijul outcome is scenario-specific; Git and Pijul conflict booleans are
+    deliberately not assumed equivalent. -/
+structure ConflictScenario where
+  gitObservation : GitMergeObservation
   pijulTrace : PijulOperationTrace
   expectedPijulOutcome : ExpectedPijulOutcome
 
@@ -827,18 +842,26 @@ def ChangeMappedAtTip (history : GitHistory) (ledger : BridgeLedger)
     recorded provenance. The base must be an ancestor of both tips, and every
     mapped change reachable at each tip must occur in that side's Pijul input.
     This is an explicit proof obligation, not an assumption about the importer. -/
+/-- The named Git operation refers to real commits in the supplied
+    history, and its base is an ancestor of both tips. This checks the
+    structural provenance of the observation; proving that the reported result
+    matches a real Git invocation belongs to the concrete adapter refinement. -/
+def GitMergeObservationWellFormed (history : GitHistory)
+    (observation : GitMergeObservation) : Prop :=
+  (∃ commit, history.commit observation.base = some commit) ∧
+  (∃ commit, history.commit observation.leftTip = some commit) ∧
+  (∃ commit, history.commit observation.rightTip = some commit) ∧
+  GitHistory.Ancestor history observation.base observation.leftTip ∧
+  GitHistory.Ancestor history observation.base observation.rightTip
+
 def ScenarioInputsIncludeMappedGitChanges (history : GitHistory)
     (ledger : BridgeLedger) (scenario : ConflictScenario) : Prop :=
-  (∃ commit, history.commit scenario.base = some commit) ∧
-  (∃ commit, history.commit scenario.leftTip = some commit) ∧
-  (∃ commit, history.commit scenario.rightTip = some commit) ∧
-  GitHistory.Ancestor history scenario.base scenario.leftTip ∧
-  GitHistory.Ancestor history scenario.base scenario.rightTip ∧
-  (∀ change, ChangeMappedAtTip history ledger scenario.base change →
+  GitMergeObservationWellFormed history scenario.gitObservation ∧
+  (∀ change, ChangeMappedAtTip history ledger scenario.gitObservation.base change →
     change ∈ scenario.pijulTrace.baseChanges) ∧
-  (∀ change, ChangeMappedAtTip history ledger scenario.leftTip change →
+  (∀ change, ChangeMappedAtTip history ledger scenario.gitObservation.leftTip change →
     change ∈ scenario.pijulTrace.leftChanges) ∧
-  (∀ change, ChangeMappedAtTip history ledger scenario.rightTip change →
+  (∀ change, ChangeMappedAtTip history ledger scenario.gitObservation.rightTip change →
     change ∈ scenario.pijulTrace.rightChanges)
 
 /-- The paired scenario is correct only if the trace inputs contain the
@@ -862,7 +885,7 @@ def ConflictScenarioCorrect (history : GitHistory) (ledger : BridgeLedger)
     paired Pijul operation reports no native conflict. This is a classification
     predicate, not a theorem that such a Pijul operation always exists. -/
 def GitConflictHasNoPijulArbitrationSignal (scenario : ConflictScenario) : Prop :=
-  scenario.gitMergeReportedConflict = true ∧ scenario.pijulTrace.conflicts = []
+  scenario.gitObservation.reportedConflict = true ∧ scenario.pijulTrace.conflicts = []
 
 /-- The arbitration signal for a scenario is determined solely by native
     Pijul conflicts. Git's conflict result alone never triggers arbitration. -/
