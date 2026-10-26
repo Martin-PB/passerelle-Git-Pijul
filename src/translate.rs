@@ -272,6 +272,12 @@ fn stable_base_channel_name(base_sha: &str) -> String {
     format!("base-{base_sha}")
 }
 
+/// Stable snapshots preserve imported state when pijul git removes the
+/// corresponding OID-named channel while importing a child commit.
+fn stable_commit_channel_name(git_sha: &str) -> String {
+    format!("git-{git_sha}")
+}
+
 /// The first commit in a PR may have a parent OID channel that a prior import
 /// removed. Use the retained stable base channel for that one snapshot.
 fn parent_state_channel<'a>(
@@ -474,10 +480,17 @@ pub fn translate_pr_from_mirror(
         }
         let parent_sha = parts[1];
         let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
-        let before = changes_on_channel(pijul_repo, parent_channel)?;
+        // pijul git resolves a commit's parent by its Git-OID channel name.
+        // beta.24 may remove that channel after importing a child, so restore
+        // it from the durable snapshot before every import.
+        ensure_channel_from(pijul_repo, parent_channel, parent_sha)?;
+        let before = changes_on_channel(pijul_repo, parent_sha)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
+        // Preserve this commit's state before a later child import can remove
+        // its OID-named channel.
+        ensure_channel_from(pijul_repo, sha, &stable_commit_channel_name(sha))?;
         if !ledger.record(Entry {
             git_sha: sha.to_owned(),
             pijul_change: change,
