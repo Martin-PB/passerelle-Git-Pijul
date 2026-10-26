@@ -200,15 +200,18 @@ def toyHistory : GitHistory where
     · next h =>
         injection hc with hc'
         subst hc'
+        rw [h]
     · split at hc
       · next h =>
           injection hc with hc'
           subst hc'
-        · split at hc
+          rw [h]
+      · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
-            · exact Option.noConfusion hc
+            rw [h]
+        · exact Option.noConfusion hc
   parentsNoDup := by
     intro oid c hc
     simp only [toyCommit] at hc
