@@ -5,7 +5,7 @@
 > affirmations sur le comportement de `pijul git` proviennent de la lecture du
 > code source de la commande (`pijul/src/commands/git.rs`, branche beta) —
 > elles sont citées comme telles, et restent à confirmer par exécution dès que
-> les crédits CI permettront de lancer le harnas 2.1.
+> les crédits CI permettront de lancer le harnais 2.1.
 
 ## 1. Ce que fait réellement `pijul git` (lu dans le code source)
 
@@ -80,7 +80,7 @@ exactement par commit — aucune heuristique d'ordre à inventer.
   lire l'état du parent avant l'import de l'enfant, puis l'état de l'enfant
   juste après. La source beta.24 supprime des channels OID parents pendant
   l'import ; les états ne peuvent donc pas tous être interrogés après un
-  import global de la tête. À prouver par le harnas 2.1 à l'exécution.
+  import global de la tête. À prouver par le harnais 2.1 à l'exécution.
 - **D3 — les channels `<OID>` ne sortent jamais de la passerelle** : seule
   la couche nommée `pr-<n>`/`integration` est exposée.
 - **D4 — ordre d'application** : `git rev-list` oldest-first (les dépendances
