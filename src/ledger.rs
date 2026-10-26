@@ -12,6 +12,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Git commit OIDs are full SHA-1 or SHA-256 hexadecimal identifiers.
+fn is_full_git_oid(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     pub git_sha: String,
@@ -54,11 +59,11 @@ impl Ledger {
     /// empty change hashes cannot be used for replay/idempotence decisions.
     fn validate(&self) -> std::io::Result<()> {
         for (key, entry) in &self.by_sha {
-            if key.trim().is_empty() || key != &entry.git_sha {
+            if !is_full_git_oid(key) || key != &entry.git_sha {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
-                        "ledger key {key:?} does not match entry Git SHA {:?}",
+                        "ledger key {key:?} must be a full Git commit OID matching entry Git SHA {:?}",
                         entry.git_sha
                     ),
                 ));
@@ -135,6 +140,9 @@ impl Ledger {
     /// with a different change hash or conflicting provenance (PR/direction),
     /// i.e. the mapping is inconsistent or the Git side moved under us.
     pub fn record(&mut self, entry: Entry) -> bool {
+        if !is_full_git_oid(&entry.git_sha) || entry.pijul_change.trim().is_empty() {
+            return false;
+        }
         match self.by_sha.get(&entry.git_sha) {
             Some(existing)
                 if existing.pijul_change != entry.pijul_change
