@@ -93,7 +93,10 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         if status.contains("Unrecorded changes") || status.contains("Untracked files") {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!(\n                    "integration has unrecorded or untracked work but no parseable unresolved-conflict section; refusing to classify it as clean. Raw `pijul status` output follows:\\n{}",\n                    status.trim()\n                ),
+                format!(
+                    "integration has unrecorded or untracked work but no parseable unresolved-conflict section; refusing to classify it as clean. Raw `pijul status` output follows:\n{}",
+                    status.trim()
+                ),
             ));
         }
         return Ok(vec![Triage::Clean]);
