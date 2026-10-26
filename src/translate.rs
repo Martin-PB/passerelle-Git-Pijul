@@ -480,10 +480,15 @@ pub fn translate_pr_from_mirror(
         }
         let parent_sha = parts[1];
         let parent_channel = parent_state_channel(parent_sha, &base.sha, &base_channel);
+        let parent_snapshot = if parent_sha == base.sha {
+            base_channel.clone()
+        } else {
+            stable_commit_channel_name(parent_sha)
+        };
         // pijul git resolves a commit's parent by its Git-OID channel name.
         // beta.24 may remove that channel after importing a child, so restore
         // it from the durable snapshot before every import.
-        ensure_channel_from(pijul_repo, parent_channel, parent_sha)?;
+        ensure_channel_from(pijul_repo, &parent_snapshot, parent_sha)?;
         let before = changes_on_channel(pijul_repo, parent_sha)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
