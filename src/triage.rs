@@ -217,14 +217,14 @@ mod tests {
 
     #[test]
     fn unknown_nonempty_status_is_not_classified_as_clean() {
-        let error = parse_status_output(Path::new("."), "unexpected status output\\n")
+        let error = parse_status_output(Path::new("."), "unexpected status output\n")
             .expect_err("unknown status must fail closed");
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
     fn wrong_channel_header_is_not_classified_as_clean() {
-        let error = parse_status_output(Path::new("."), "On channel: other\\n")
+        let error = parse_status_output(Path::new("."), "On channel: other\n")
             .expect_err("a different channel header must fail closed");
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
