@@ -131,7 +131,7 @@ tenter un export local si `pijul-export` est installé séparément ;
 ```sh
 passerelle merge-prs 42 43 --base main --mirror .gateway-mirror --workdir .gateway-work --export-mode merge-topology
 passerelle operator queue
-passerelle operator submit --change <hash> --note "choix de l'approche de la branche a"
+passerelle operator submit --change <hash> --path <chemin-exact-du-conflit> --note "choix de l'approche de la branche a"
 
 # Greffon frontal (exemple futur) : un hébergement traduit sa sémantique en refs.
 passerelle github merge-prs 42 43 44 --base main   # -> refs/pull/<n>/head
