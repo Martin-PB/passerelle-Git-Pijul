@@ -41,6 +41,24 @@ fn intent_survives_reload_and_can_be_completed_after_mapping() {
 }
 
 #[test]
+fn pending_intents_lists_all_shas_in_the_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ImportIntentStore::new(dir.path());
+    let first = intent();
+    let second = ImportIntent {
+        git_sha: "1111111111111111111111111111111111111111".into(),
+        ..intent()
+    };
+    store.begin(&first).unwrap();
+    store.begin(&second).unwrap();
+
+    let pending = store.pending_intents().unwrap();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[0].git_sha, SHA);
+    assert_eq!(pending[1].git_sha, second.git_sha);
+}
+
+#[test]
 fn pending_intent_blocks_blind_retry_after_interrupted_import() {
     let dir = tempfile::tempdir().unwrap();
     let store = ImportIntentStore::new(dir.path());
