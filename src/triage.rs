@@ -1,11 +1,9 @@
 //! Triage: classify what remains after applying all PR changes onto the
 //! integration channel.
 //!
-//! P0 surfaces explicit unresolved conflicts and conservatively routes dirty
-//! or untracked integration paths to operator review when Pijul does not expose
-//! a conflict section. Dirty status is not proof of a semantic conflict.
-//! Deterministic auto-resolution and path-to-PR attribution are deferred; this
-//! module must never report Clean merely because conflict inspection was skipped.
+//! P0 only detects unresolved conflicts. Deterministic auto-resolution rules
+//! and path-to-PR attribution are intentionally deferred; this module must
+//! never report Clean merely because conflict inspection was skipped.
 
 use crate::operator::ConflictReport;
 use std::path::{Component, Path};
@@ -67,12 +65,12 @@ pub fn triage_integration_channel(workdir: &Path) -> std::io::Result<Vec<Triage>
 
 /// Read a reported path only when every existing path component is a
 /// non-symlink directory and the final component is a regular file. This
-/// prevents a conflict path from traversing a symlink into data outside the
+/// prevents conflict paths from traversing symlinks into data outside the
 /// Pijul working copy. It is not a defence against a hostile concurrent
 /// process replacing components between checks and the final read.
 fn read_reported_file(workdir: &Path, relative: &Path) -> String {
     let Ok(root) = workdir.canonicalize() else {
-        return "Pijul reported a path, but the repository root could not be resolved; content was not read."
+        return "Pijul reported a conflict, but the repository root could not be resolved; content was not read."
             .into();
     };
     let components: Vec<_> = relative
@@ -80,14 +78,12 @@ fn read_reported_file(workdir: &Path, relative: &Path) -> String {
         .filter_map(|component| match component {
             Component::Normal(part) => Some(part.to_owned()),
             Component::CurDir => None,
-            _ => {
-                // Reject the whole path rather than trying to normalize it.
-                Some(std::ffi::OsString::new())
-            }
+            _ => Some(std::ffi::OsString::new()),
         })
         .collect();
     if components.is_empty() || components.iter().any(|part| part.is_empty()) {
-        return "Pijul reported a non-relative or empty path; content was not read.".into();
+        return "Pijul reported a conflict at a non-relative or empty path; content was not read."
+            .into();
     }
 
     let mut current = root.clone();
@@ -96,19 +92,21 @@ fn read_reported_file(workdir: &Path, relative: &Path) -> String {
         let metadata = match std::fs::symlink_metadata(&current) {
             Ok(metadata) => metadata,
             Err(_) => {
-                return "Pijul reported a path that is unavailable; content was not read.".into();
+                return "Pijul reported a conflict path that is unavailable; content was not read."
+                    .into();
             }
         };
         if metadata.file_type().is_symlink() {
-            return "Pijul reported a path traversing a symbolic link; content was not read.".into();
+            return "Pijul reported a conflict path traversing a symbolic link; content was not read."
+                .into();
         }
         if index + 1 < components.len() {
             if !metadata.is_dir() {
-                return "Pijul reported a path with a non-directory parent; content was not read."
+                return "Pijul reported a conflict path with a non-directory parent; content was not read."
                     .into();
             }
         } else if !metadata.is_file() {
-            return "Pijul reported this path, but it is not a regular file; content was not read."
+            return "Pijul reported a conflict path that is not a regular file; content was not read."
                 .into();
         }
     }
@@ -116,113 +114,160 @@ fn read_reported_file(workdir: &Path, relative: &Path) -> String {
     let resolved = match current.canonicalize() {
         Ok(path) => path,
         Err(_) => {
-            return "Pijul reported a path that could not be resolved; content was not read.".into();
+            return "Pijul reported a conflict path that could not be resolved; content was not read."
+                .into();
         }
     };
     if !resolved.starts_with(&root) {
-        return "Pijul reported a path outside the repository; content was not read.".into();
+        return "Pijul reported a conflict path outside the repository; content was not read."
+            .into();
     }
-    std::fs::read_to_string(resolved)
-        .unwrap_or_else(|_| "Pijul reported a path that is binary or unreadable; content was not read.".into())
+    std::fs::read_to_string(resolved).unwrap_or_else(|_| {
+        "Pijul reported a conflict path that is binary or unreadable; content was not read."
+            .into()
+    })
 }
 
 fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Triage>> {
-    // The caller has already successfully switched to `integration`.
-    // Pijul beta.24 does not always include an explicit conflict section.
-    // In that case, dirty/untracked paths must still be surfaced for operator
-    // review; they must never be mistaken for a clean integration.
-    let mut in_conflicts = false;
-    let mut paths = Vec::new();
+    fn invalid(message: impl Into<String>) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, message.into())
+    }
+
+    // The caller has successfully switched to integration. beta.24 may omit
+    // its header, so empty output is a valid clean state; unknown non-empty
+    // output is never interpreted as clean.
+    let mut section: Option<&str> = None;
+    let mut conflict_section_seen = false;
+    let mut changes_section_seen = false;
+    let mut untracked_section_seen = false;
+    let mut paths: Vec<(String, bool)> = Vec::new();
+
     for line in status.lines() {
         let trimmed = line.trim();
-        if trimmed == "Unresolved conflicts:" {
-            in_conflicts = true;
+        if trimmed.is_empty() {
             continue;
         }
-        if !in_conflicts {
-            continue;
-        }
-        if trimmed.is_empty() || trimmed.starts_with("(fix conflicts") {
-            continue;
-        }
-        if !line.starts_with(' ') && !line.starts_with('\t') {
-            break;
-        }
-        paths.push(trimmed.to_owned());
-    }
-
-    let dirty_without_conflict_section = !in_conflicts
-        && (status.contains("Changes not recorded:") || status.contains("Untracked files:"));
-    if dirty_without_conflict_section {
-        let mut section = "";
-        for line in status.lines() {
-            let trimmed = line.trim();
-            match trimmed {
-                "Changes not recorded:" => {
-                    section = "changes";
-                    continue;
-                }
-                "Untracked files:" => {
-                    section = "untracked";
-                    continue;
-                }
-                _ => {}
+        if matches!(
+            trimmed,
+            "On branch integration" | "On channel integration" | "On channel: integration"
+        ) {
+            if section.is_some() {
+                return Err(invalid("unexpected integration header inside a status section"));
             }
-            if trimmed.is_empty() {
+            continue;
+        }
+
+        match trimmed {
+            "Unresolved conflicts:" => {
+                if conflict_section_seen || changes_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                conflict_section_seen = true;
+                section = Some("conflicts");
                 continue;
             }
-            if section.is_empty() || trimmed.starts_with('(') {
+            "Changes not recorded:" => {
+                if conflict_section_seen || changes_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                changes_section_seen = true;
+                section = Some("changes");
                 continue;
             }
-            let path = if section == "changes" {
-                // Status entries such as "moved   docs" put the path last.
-                trimmed.split_whitespace().last().unwrap_or(trimmed)
-            } else {
-                trimmed
-            };
-            paths.push(path.to_owned());
+            "Untracked files:" => {
+                if conflict_section_seen || untracked_section_seen {
+                    return Err(invalid(
+                        "pijul status repeated or mixed incompatible status sections",
+                    ));
+                }
+                untracked_section_seen = true;
+                section = Some("untracked");
+                continue;
+            }
+            _ => {}
         }
-        paths.sort();
-        paths.dedup();
+
+        if trimmed.starts_with('(') {
+            if section.is_some() {
+                continue;
+            }
+            return Err(invalid(format!(
+                "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
+            )));
+        }
+
+        let indented = line.starts_with(' ') || line.starts_with('\\t');
+        match section {
+            Some("conflicts") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in conflict section: {trimmed:?}"
+                    )));
+                }
+                paths.push((trimmed.to_owned(), true));
+            }
+            Some("changes") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in changes section: {trimmed:?}"
+                    )));
+                }
+                let mut parts = trimmed.splitn(2, char::is_whitespace);
+                let _operation = parts.next();
+                let path = parts.next().unwrap_or("").trim();
+                if path.is_empty() {
+                    return Err(invalid(format!(
+                        "cannot parse path from Pijul status entry: {trimmed:?}"
+                    )));
+                }
+                paths.push((path.to_owned(), false));
+            }
+            Some("untracked") => {
+                if !indented {
+                    return Err(invalid(format!(
+                        "unrecognized pijul status line in untracked section: {trimmed:?}"
+                    )));
+                }
+                paths.push((trimmed.to_owned(), false));
+            }
+            _ => {
+                return Err(invalid(format!(
+                    "unrecognized pijul status output; refusing to assume clean: {trimmed:?}"
+                )));
+            }
+        }
     }
 
-    if !in_conflicts && !dirty_without_conflict_section {
-        // An empty status is a valid clean result on beta.24. If the CLI emits
-        // a header, accept only a known integration header; arbitrary non-empty
-        // output must not silently become Clean.
-        let unexpected: Vec<_> = status
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                !line.is_empty()
-                    && *line != "On channel: integration"
-                    && *line != "On branch integration"
-            })
-            .collect();
-        if !unexpected.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "unrecognized pijul status output; refusing to classify integration as clean: {}",
-                    unexpected.join(" | ")
-                ),
+    if paths.is_empty() {
+        if conflict_section_seen {
+            return Err(invalid(
+                "pijul status reported unresolved conflicts but no conflict paths could be parsed",
+            ));
+        }
+        if changes_section_seen || untracked_section_seen {
+            return Err(invalid(
+                "pijul status reported unrecorded or untracked work but no paths could be parsed",
             ));
         }
         return Ok(vec![Triage::Clean]);
     }
-    if paths.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            if in_conflicts {
-                "pijul status reported unresolved conflicts but no conflict paths could be parsed"
-            } else {
-                "pijul status reports unrecorded or untracked work but no paths could be parsed"
-            },
-        ));
+
+    let mut seen = std::collections::BTreeSet::new();
+    for (path, _) in &paths {
+        if !seen.insert(path.clone()) {
+            return Err(invalid(format!(
+                "pijul status repeated path {path:?}; refusing ambiguous triage"
+            )));
+        }
     }
 
+    let dirty_without_conflict_section = !conflict_section_seen;
     let mut reports = Vec::with_capacity(paths.len());
-    for path in paths {
+    for (path, is_conflict) in paths {
         let relative = Path::new(&path);
         let safe = relative.components().all(|component| {
             matches!(component, Component::Normal(_) | Component::CurDir)
@@ -232,7 +277,7 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
         } else {
             "Pijul reported a non-relative path; content was not read.".into()
         };
-        let conflict_state = if dirty_without_conflict_section {
+        let conflict_state = if dirty_without_conflict_section && !is_conflict {
             format!(
                 "Pijul status did not expose an explicit unresolved-conflict section. This path is reported as dirty/untracked and requires operator review.\n\n{}",
                 file_contents
@@ -257,42 +302,73 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn clean_status_is_parsed_after_caller_switches_to_integration() {
-        // Pijul beta.24 may omit the active channel header from status output.
-        let clean = "";
+    fn clean_status_accepts_empty_or_known_integration_header() {
+        for clean in [
+            "",
+            "On branch integration\n",
+            "On channel integration\n",
+            "On channel: integration\n",
+        ] {
+            assert!(matches!(
+                parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+                [Triage::Clean]
+            ));
+        }
+    }
+
+    #[test]
+    fn channel_name_must_match_exactly() {
+        let status = "On branch not-integration\n";
+        assert_eq!(
+            parse_status_output(Path::new("."), status)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn unknown_status_output_is_not_misclassified_as_clean() {
+        let status = "On channel integration\n\nStatus format changed unexpectedly\n";
+        assert_eq!(
+            parse_status_output(Path::new("."), status)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn duplicate_conflict_paths_are_rejected() {
+        let status = "On channel integration\n\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    src/lib.rs\n    src/lib.rs\n";
+        assert_eq!(
+            parse_status_output(Path::new("."), status)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn channel_header_variant_is_supported() {
+        let status = "On channel integration\n";
         assert!(matches!(
-            parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+            parse_status_output(Path::new("."), status).unwrap().as_slice(),
             [Triage::Clean]
         ));
     }
 
     #[test]
-    fn unknown_nonempty_status_is_not_classified_as_clean() {
-        let error = parse_status_output(Path::new("."), "unexpected status output\n")
-            .expect_err("unknown status must fail closed");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    }
-
-    #[test]
-    fn wrong_channel_header_is_not_classified_as_clean() {
-        let error = parse_status_output(Path::new("."), "On channel: other\n")
-            .expect_err("a different channel header must fail closed");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    }
-
-    #[test]
-    fn dirty_status_without_explicit_conflicts_is_reported_for_operator() {
-        let root = tempfile::tempdir().expect("temp root");
-        std::fs::write(root.path().join("docs-b.md"), "dirty content\n")
-            .expect("write fixture");
-        let status = "On channel: integration\n\nChanges not recorded:\n  (use record)\n\n        moved   docs\n\nUntracked files:\n  (use add)\n\n        docs-b.md\n";
+    fn dirty_beta24_status_without_conflict_section_is_routed_to_operator() {
+        let root = tempfile::tempdir().expect("repository root");
+        std::fs::write(root.path().join("docs.md"), "dirty content\n").expect("write file");
+        let status = "Changes not recorded:\n  (use record)\n        moved   docs.md\n\nUntracked files:\n  (use add)\n        new.md\n";
         let result = parse_status_output(root.path(), status).unwrap();
-        assert!(result.iter().any(|item| matches!(
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|item| matches!(
             item,
-            Triage::Operator { report } if report.path == "docs-b.md"
-                && report.conflict_state.contains("did not expose an explicit unresolved-conflict section")
+            Triage::Operator { report } if report.conflict_state.contains("did not expose an explicit unresolved-conflict section")
         )));
-        assert!(!result.iter().any(|item| matches!(item, Triage::Clean)));
     }
 
     #[cfg(unix)]
@@ -306,7 +382,7 @@ mod tests {
             .expect("write outside file");
         symlink(outside.path(), root.path().join("linked-dir")).expect("create symlink");
 
-        let status = "Unresolved conflicts:\n    linked-dir/secret.txt\n";
+        let status = "On branch integration\n\nUnresolved conflicts:\n    linked-dir/secret.txt\n";
         let result = parse_status_output(root.path(), status).unwrap();
         match &result[0] {
             Triage::Operator { report } => {
