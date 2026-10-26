@@ -11,9 +11,11 @@
 //!
 //!   passerelle merge-prs 42 43 --base main --export-mode merge-topology
 //!   passerelle operator queue
-//!   passerelle operator submit --change <hash> --note "chose branch A"
+//!   passerelle operator submit --path src/lib.rs --change <hash> --note "chose branch A"
 
-use passerelle_git_pijul::{export, ingest, ledger, operator, translate, triage, ExportMode};
+use passerelle_git_pijul::{
+    export, ingest, ledger, operator, translate, triage, workspace_lock::WorkspaceLock, ExportMode,
+};
 use std::path::PathBuf;
 
 fn main() {
@@ -82,6 +84,11 @@ fn ingest_cmd(args: &[String]) {
         eprintln!("ingest requires at least one --ref source=destination");
         std::process::exit(2);
     }
+
+    let _mirror_lock = WorkspaceLock::for_mirror(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire Git mirror lock: {error}");
+        std::process::exit(1);
+    });
 
     match ingest::fetch_refs(&remote, &refs, &workdir) {
         Ok(()) => {
@@ -170,6 +177,16 @@ fn merge_prs(args: &[String]) {
         eprintln!("merge-prs requires at least one PR number");
         std::process::exit(2);
     }
+    // Lock order is always mirror first, then workspace.
+    let _mirror_lock = WorkspaceLock::for_mirror(&mirror).unwrap_or_else(|error| {
+        eprintln!("cannot acquire Git mirror lock: {error}");
+        std::process::exit(1);
+    });
+    let _workspace_lock = WorkspaceLock::for_workspace(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire gateway workspace lock: {error}");
+        std::process::exit(1);
+    });
+
     println!("plan:\n  {}", export::plan(export_mode, &prs).join("\n  "));
 
     let base_ref = if base.starts_with("refs/") {
@@ -267,16 +284,17 @@ fn merge_prs(args: &[String]) {
             "merge-topology export remains unimplemented; no Git branch was written."
         ),
     }
-    println!("triage and operator resolution remain unimplemented.");
+    println!("automatic resolution rules and PR attribution remain unimplemented; merge-topology export is not available.");
 }
 
 fn operator_cmd(args: &[String]) {
     let Some(action) = args.first().map(String::as_str) else {
-        eprintln!("usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]");
+        eprintln!("usage: passerelle operator <queue|submit> [--workdir PATH] [--path CONFLICT_PATH] [--change HASH] [--note TEXT]");
         std::process::exit(2);
     };
     let mut workdir = PathBuf::from(".gateway-work");
     let mut change_hash = None;
+    let mut conflict_path = None;
     let mut note = None;
     let mut i = 1;
     while i < args.len() {
@@ -287,6 +305,14 @@ fn operator_cmd(args: &[String]) {
                     std::process::exit(2);
                 };
                 workdir = PathBuf::from(value);
+                i += 2;
+            }
+            "--path" => {
+                let Some(value) = args.get(i + 1) else {
+                    eprintln!("--path needs the exact conflict path shown by operator queue");
+                    std::process::exit(2);
+                };
+                conflict_path = Some(value.clone());
                 i += 2;
             }
             "--change" => {
@@ -311,6 +337,11 @@ fn operator_cmd(args: &[String]) {
             }
         }
     }
+
+    let _workspace_lock = WorkspaceLock::for_workspace(&workdir).unwrap_or_else(|error| {
+        eprintln!("cannot acquire gateway workspace lock: {error}");
+        std::process::exit(1);
+    });
 
     match action {
         "queue" => match triage::triage_integration_channel(&workdir.join("pijul")) {
@@ -339,19 +370,28 @@ fn operator_cmd(args: &[String]) {
                 eprintln!("operator submit requires --change <hash>");
                 std::process::exit(2);
             };
-            match operator::apply_resolution(&workdir, &change_hash, note.as_deref()) {
+            let Some(conflict_path) = conflict_path else {
+                eprintln!("operator submit requires --path <exact conflict path from operator queue>");
+                std::process::exit(2);
+            };
+            match operator::apply_resolution_and_verify(
+                &workdir,
+                &conflict_path,
+                &change_hash,
+                note.as_deref(),
+            ) {
                 Ok(()) => println!(
-                    "applied resolution change {change_hash} to integration; audit appended"
+                    "applied resolution change {change_hash}; fresh Pijul triage verified that {conflict_path:?} is no longer conflicted"
                 ),
                 Err(error) => {
-                    eprintln!("resolution application failed: {error}");
+                    eprintln!("resolution application/verification failed: {error}");
                     std::process::exit(1);
                 }
             }
         }
         _ => {
             eprintln!(
-                "usage: passerelle operator <queue|submit> [--workdir PATH] [--change HASH] [--note TEXT]"
+                "usage: passerelle operator <queue|submit> [--workdir PATH] [--path CONFLICT_PATH] [--change HASH] [--note TEXT]"
             );
             std::process::exit(2);
         }
