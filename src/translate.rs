@@ -6,6 +6,7 @@
 //! It deliberately fails closed if the CLI's observed result differs from the
 //! design assumption of exactly one change per non-root Git commit.
 
+use crate::import_intent::{ImportIntent, ImportIntentStore};
 use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
@@ -357,12 +358,58 @@ pub fn translate_pr_from_mirror(
         git_mirror,
         &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
     )?;
+    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
+    let ledger_file = crate::ledger::ledger_path(ledger_root);
+    let intent_store = ImportIntentStore::new(ledger_root);
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
         // refer to channels it has already dropped. The retained PR tip is
         // the checkpoint; import only commits not yet in the ledger.
         if let Some(existing) = ledger.get(sha) {
             if existing.direction == Direction::GitToPijul && existing.pr == Some(pr.number) {
+                if let Some(intent) = intent_store.load(sha)? {
+                    if intent.base_sha != base.sha {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} names a different base"),
+                        ));
+                    }
+                    let parent_line =
+                        git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
+                    let parts: Vec<_> = parent_line.split_whitespace().collect();
+                    if parts.len() != 2 || intent.parent_sha != parts[1] {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} does not match its current Git parent"),
+                        ));
+                    }
+                    // The caller may reuse the same in-memory Ledger after a
+                    // failed save. Reconcile only against a mapping that is
+                    // actually durable on disk, not merely present in memory.
+                    let durable_ledger = Ledger::load(&ledger_file)?;
+                    let Some(durable_entry) = durable_ledger.get(sha) else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("pending import intent for {sha} has no durable ledger mapping"),
+                        ));
+                    };
+                    if durable_entry.git_sha != existing.git_sha
+                        || durable_entry.pijul_change != existing.pijul_change
+                        || durable_entry.pr != existing.pr
+                        || durable_entry.direction != existing.direction
+                    {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("durable ledger entry for {sha} differs from the in-memory mapping"),
+                        ));
+                    }
+                    intent_store.reconcile_committed(
+                        &intent,
+                        &durable_entry.git_sha,
+                        durable_entry.pr,
+                        &durable_entry.pijul_change,
+                    )?;
+                }
                 continue;
             }
             return Err(std::io::Error::new(
@@ -370,6 +417,11 @@ pub fn translate_pr_from_mirror(
                 format!("Git SHA {sha} already has a ledger entry outside PR {}'s import", pr.number),
             ));
         }
+
+        // A previous process may have died after Pijul was mutated but before
+        // the ledger mapping was committed. Do not replay blindly: the exact
+        // change may already exist, and beta.24 may have removed its OID channel.
+        intent_store.require_no_uncommitted_intent(sha)?;
 
         let parents = git(git_mirror, &["rev-list", "--parents", "-n", "1", sha])?;
         let parts: Vec<_> = parents.split_whitespace().collect();
@@ -384,9 +436,20 @@ pub fn translate_pr_from_mirror(
         }
         let parent_sha = parts[1];
         let before = changes_on_channel(pijul_repo, parent_sha)?;
+        let mut intent = ImportIntent {
+            git_sha: sha.to_owned(),
+            parent_sha: parent_sha.to_owned(),
+            base_sha: base.sha.clone(),
+            pr: pr.number,
+            pijul_change: None,
+        };
+        // This durable record must exist before the first mutating Pijul call.
+        intent_store.begin(&intent)?;
         import_git_commit(git_mirror, pijul_repo, sha, scratch)?;
         let after = changes_on_channel(pijul_repo, sha)?;
         let change = unique_new_change(&before, &after, sha)?;
+        intent.pijul_change = Some(change.clone());
+        intent_store.mark_mapped(&intent)?;
         if !ledger.record(Entry {
             git_sha: sha.to_owned(),
             pijul_change: change,
@@ -399,12 +462,15 @@ pub fn translate_pr_from_mirror(
                 format!("Git SHA {sha} is already mapped to a different Pijul change"),
             ));
         }
+        // Persist mapping before removing the intent. If save fails, the intent
+        // remains and the next run stops instead of replaying an uncertain import.
+        ledger.save(&ledger_file)?;
+        intent_store.complete(&intent)?;
     }
 
     pull_channel_into(pijul_repo, &pr.head_sha, &pr_channel)?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
-    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
-    ledger.save(&crate::ledger::ledger_path(ledger_root))?;
+    ledger.save(&ledger_file)?;
     Ok(())
 }
 
