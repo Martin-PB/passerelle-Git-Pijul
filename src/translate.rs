@@ -6,6 +6,7 @@
 //! It deliberately fails closed if the CLI's observed result differs from the
 //! design assumption of exactly one change per non-root Git commit.
 
+use crate::base_import_intent::BaseImportIntentStore;
 use crate::import_intent::{ImportIntent, ImportIntentStore};
 use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
@@ -379,6 +380,21 @@ pub fn translate_pr_from_mirror(
     let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
     let ledger_file = crate::ledger::ledger_path(ledger_root);
     let intent_store = ImportIntentStore::new(ledger_root);
+    let base_intent_store = BaseImportIntentStore::new(ledger_root);
+
+    // Base imports do not produce a normal PR ledger mapping, so they use a
+    // separate journal. Never retry a base mutation if an earlier marker
+    // remains, even if the Pijul repository or base channel now exists.
+    let pending_base_intents = base_intent_store.pending()?;
+    if let Some(intent) = pending_base_intents.first() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            format!(
+                "workspace has unresolved base import intent for {}; preserve the workspace and recover explicitly before importing any PR",
+                intent.base_sha
+            ),
+        ));
+    }
 
     // Quarantine the entire workspace if any earlier import is unresolved.
     // A pending intent for a different SHA can still represent a mutation to
@@ -496,8 +512,8 @@ pub fn translate_pr_from_mirror(
 
     // On a fresh workspace the Pijul repository does not exist yet, so
     // querying its channels would fail before the base import can initialize it.
-    // Bootstrap from the pinned base first; never silently recreate a repository
-    // when the ledger says imports already exist.
+    // Journal the base mutation separately: it has no ordinary PR ledger entry.
+    let mut base_import_intent_started = false;
     if !pijul_repo.exists() {
         if has_any_import {
             return Err(std::io::Error::new(
@@ -505,6 +521,8 @@ pub fn translate_pr_from_mirror(
                 "Pijul repository is missing although the ledger contains prior imports; refusing unsafe reinitialization",
             ));
         }
+        base_intent_store.begin(&base.sha)?;
+        base_import_intent_started = true;
         import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
     }
 
@@ -532,10 +550,25 @@ pub fn translate_pr_from_mirror(
                     ),
                 ));
             }
+            if base_import_intent_started {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "base import for {} completed without leaving its expected OID channel; intent retained and workspace quarantined",
+                        base.sha
+                    ),
+                ));
+            }
+            base_intent_store.begin(&base.sha)?;
+            base_import_intent_started = true;
             import_git_commit(git_mirror, pijul_repo, &base.sha, scratch)?;
         }
         ensure_channel_from(pijul_repo, &base.sha, &base_channel)?;
         channels = list_channels(pijul_repo)?;
+    }
+    // The durable base marker is cleared only after the stable snapshot exists.
+    if base_import_intent_started {
+        base_intent_store.complete(&base.sha)?;
     }
 
     if !has_previous_import {
