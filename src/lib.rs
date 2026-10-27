@@ -18,6 +18,7 @@ pub mod operator;
 pub mod translate;
 pub mod triage;
 pub mod import_intent;
+pub mod base_import_intent;
 pub mod workspace_lock;
 
 /// A pull request as seen by the ingest stage.
