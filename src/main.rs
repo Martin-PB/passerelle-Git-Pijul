@@ -401,7 +401,7 @@ mod git_rev_parse_tests {
         git(&work, &["init", "-b", "main"]);
         git(&work, &["config", "user.name", "Synthetic Test"]);
         git(&work, &["config", "user.email", "synthetic@example.invalid"]);
-        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        std::fs::write(work.join("file.txt"), "base\n").expect("write fixture");
         git(&work, &["add", "file.txt"]);
         git(&work, &["commit", "-m", "base"]);
         let expected = git(&work, &["rev-parse", "HEAD"]);
