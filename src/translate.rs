@@ -1020,11 +1020,11 @@ mod pending_intent_preflight_tests {
         run_git(&work, &["init", "-b", "main"]);
         run_git(&work, &["config", "user.name", "Synthetic Test"]);
         run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
-        std::fs::write(work.join("base.txt"), "base\\n").expect("write base file");
+        std::fs::write(work.join("base.txt"), "base\n").expect("write base file");
         run_git(&work, &["add", "base.txt"]);
         run_git(&work, &["commit", "-m", "base"]);
         let base_sha = run_git(&work, &["rev-parse", "HEAD"]);
-        std::fs::write(work.join("head.txt"), "head\\n").expect("write PR file");
+        std::fs::write(work.join("head.txt"), "head\n").expect("write PR file");
         run_git(&work, &["add", "head.txt"]);
         run_git(&work, &["commit", "-m", "PR head"]);
         let head_sha = run_git(&work, &["rev-parse", "HEAD"]);
