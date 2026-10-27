@@ -7,8 +7,7 @@
 //! design assumption of exactly one change per non-root Git commit.
 
 use crate::base_import_intent::BaseImportIntentStore;
-use crate::base_import_intent::BaseImportIntentStore;
-    use crate::import_intent::{ImportIntent, ImportIntentStore};
+use crate::import_intent::{ImportIntent, ImportIntentStore};
 use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
@@ -913,6 +912,7 @@ mod pinned_commit_tests {
 #[cfg(test)]
 mod pending_intent_preflight_tests {
     use super::translate_pr_from_mirror;
+    use crate::base_import_intent::BaseImportIntentStore;
     use crate::import_intent::{ImportIntent, ImportIntentStore};
     use crate::ledger::Ledger;
     use crate::{Base, PullRequest};
