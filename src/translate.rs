@@ -7,7 +7,8 @@
 //! design assumption of exactly one change per non-root Git commit.
 
 use crate::base_import_intent::BaseImportIntentStore;
-use crate::import_intent::{ImportIntent, ImportIntentStore};
+use crate::base_import_intent::BaseImportIntentStore;
+    use crate::import_intent::{ImportIntent, ImportIntentStore};
 use crate::ledger::{Direction, Entry, Ledger};
 use crate::{Base, ExportMode, PullRequest};
 use std::collections::BTreeSet;
@@ -1002,6 +1003,61 @@ mod pending_intent_preflight_tests {
         assert!(
             !pijul_repo.exists(),
             "the pending-intent check must run before initializing Pijul"
+        );
+    }
+
+    #[test]
+    fn unresolved_base_intent_blocks_before_pijul_repository_initialization() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let work = root.path().join("git-work");
+        let mirror = root.path().join("mirror.git");
+        let workspace = root.path().join("workspace");
+        let pijul_repo = workspace.join("pijul");
+        let scratch = workspace.join("scratch");
+        std::fs::create_dir_all(&work).expect("create Git worktree");
+        std::fs::create_dir_all(&workspace).expect("create gateway workspace");
+        run_git(root.path(), &["init", "--bare", mirror.to_str().unwrap()]);
+        run_git(&work, &["init", "-b", "main"]);
+        run_git(&work, &["config", "user.name", "Synthetic Test"]);
+        run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(work.join("base.txt"), "base\\n").expect("write base file");
+        run_git(&work, &["add", "base.txt"]);
+        run_git(&work, &["commit", "-m", "base"]);
+        let base_sha = run_git(&work, &["rev-parse", "HEAD"]);
+        std::fs::write(work.join("head.txt"), "head\\n").expect("write PR file");
+        run_git(&work, &["add", "head.txt"]);
+        run_git(&work, &["commit", "-m", "PR head"]);
+        let head_sha = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(&work, &["push", mirror.to_str().unwrap(), "main"]);
+
+        BaseImportIntentStore::new(&workspace)
+            .begin(&base_sha)
+            .expect("persist pending base intent");
+
+        let error = translate_pr_from_mirror(
+            &mirror,
+            &pijul_repo,
+            &scratch,
+            &Base {
+                branch: "main".into(),
+                sha: base_sha,
+            },
+            &PullRequest {
+                number: 42,
+                title: "synthetic PR".into(),
+                author: "test".into(),
+                head_sha,
+                head_ref: "refs/heads/main".into(),
+            },
+            &mut Ledger::default(),
+        )
+        .expect_err("an unresolved base intent must quarantine the workspace");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(error.to_string().contains("unresolved base import intent"));
+        assert!(
+            !pijul_repo.exists(),
+            "the base-intent preflight must run before initializing Pijul"
         );
     }
 }
