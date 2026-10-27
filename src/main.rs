@@ -95,9 +95,20 @@ fn ingest_cmd(args: &[String]) {
 }
 
 fn git_rev_parse(repo: &std::path::Path, reference: &str) -> std::io::Result<String> {
-    let output = std::process::Command::new("git")
+    // The ingest command creates a bare mirror. Git does not reliably discover
+    // a bare repository merely from current_dir, so select it explicitly.
+    let is_bare = repo.join("HEAD").is_file()
+        && repo.join("objects").is_dir()
+        && repo.join("refs").is_dir()
+        && !repo.join(".git").exists();
+    let mut command = std::process::Command::new("git");
+    if is_bare {
+        command.arg("--git-dir").arg(repo.canonicalize()?);
+    } else {
+        command.current_dir(repo);
+    }
+    let output = command
         .args(["rev-parse", &format!("{reference}^{{commit}}")])
-        .current_dir(repo)
         .output()?;
     if !output.status.success() {
         return Err(std::io::Error::new(
@@ -355,5 +366,57 @@ fn operator_cmd(args: &[String]) {
             );
             std::process::exit(2);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod git_rev_parse_tests {
+    use super::git_rev_parse;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn git(cwd: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git must be installed for CLI ref-resolution tests");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn resolves_refs_from_the_bare_mirror_created_by_ingest() {
+        let root = tempfile::tempdir().expect("temporary test root");
+        let work = root.path().join("work");
+        let mirror = root.path().join("mirror.git");
+        std::fs::create_dir_all(&work).expect("create worktree");
+        git(root.path(), &["init", "--bare", mirror.to_str().unwrap()]);
+        git(&work, &["init", "-b", "main"]);
+        git(&work, &["config", "user.name", "Synthetic Test"]);
+        git(&work, &["config", "user.email", "synthetic@example.invalid"]);
+        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        git(&work, &["add", "file.txt"]);
+        git(&work, &["commit", "-m", "base"]);
+        let expected = git(&work, &["rev-parse", "HEAD"]);
+        git(
+            &work,
+            &[
+                "push",
+                mirror.to_str().unwrap(),
+                "HEAD:refs/remotes/base/main",
+            ],
+        );
+
+        assert_eq!(
+            git_rev_parse(&mirror, "refs/remotes/base/main").unwrap(),
+            expected
+        );
     }
 }
