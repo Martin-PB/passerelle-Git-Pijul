@@ -85,7 +85,11 @@ fn ingest_cmd(args: &[String]) {
 
     match ingest::fetch_refs(&remote, &refs, &workdir) {
         Ok(()) => {
-            println!("fetched {} ref(s) into bare mirror {}", refs.len(), workdir.display());
+            println!(
+                "fetched {} ref(s) into bare mirror {}",
+                refs.len(),
+                workdir.display()
+            );
         }
         Err(error) => {
             eprintln!("ingest failed: {error}");
@@ -185,11 +189,10 @@ fn merge_prs(args: &[String]) {
         branch: base.clone(),
         sha: base_sha,
     };
-    let mut l = ledger::Ledger::load(&ledger::ledger_path(&workdir))
-        .unwrap_or_else(|error| {
-            eprintln!("ledger load failed: {error}");
-            std::process::exit(1);
-        });
+    let mut l = ledger::Ledger::load(&ledger::ledger_path(&workdir)).unwrap_or_else(|error| {
+        eprintln!("ledger load failed: {error}");
+        std::process::exit(1);
+    });
     let pijul_repo = workdir.join("pijul");
     let scratch = workdir.join("scratch");
     let mut imported_prs = Vec::new();
@@ -263,9 +266,9 @@ fn merge_prs(args: &[String]) {
                 std::process::exit(1);
             }
         },
-        ExportMode::MergeTopology => println!(
-            "merge-topology export remains unimplemented; no Git branch was written."
-        ),
+        ExportMode::MergeTopology => {
+            println!("merge-topology export remains unimplemented; no Git branch was written.")
+        }
     }
     println!("triage and operator resolution remain unimplemented.");
 }

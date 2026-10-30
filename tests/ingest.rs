@@ -25,9 +25,14 @@ fn commit(dir: &Path, message: &str) -> String {
     run_git(
         dir,
         &[
-            "-c", "user.name=Corpus Author",
-            "-c", "user.email=corpus@example.invalid",
-            "commit", "--allow-empty", "-m", message,
+            "-c",
+            "user.name=Corpus Author",
+            "-c",
+            "user.email=corpus@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            message,
         ],
     );
     run_git(dir, &["rev-parse", "HEAD"])
