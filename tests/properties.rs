@@ -125,20 +125,6 @@ fn ledger_rejects_malformed_git_oids_before_recording_or_persisting() {
     );
     let error = invalid.save(&path).expect_err("short Git OID must not be saved");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-
-    let mut invalid = Ledger::default();
-    invalid.by_sha.insert(
-        "short".into(),
-        Entry {
-            git_sha: "short".into(),
-            pijul_change: "change-one".into(),
-            pr: None,
-            direction: Direction::GitToPijul,
-            recorded_at: "t".into(),
-        },
-    );
-    let error = invalid.save(&path).expect_err("short Git OID must not be saved");
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[test]
