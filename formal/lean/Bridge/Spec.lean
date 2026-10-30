@@ -162,13 +162,15 @@ def toyHistory : GitHistory where
           injection hc with hc'
           subst hc'
           simp only [List.mem_singleton] at hp
-          exact ⟨{ oid := 0, parents := [], tree := fun _ => none, author := 0, message := 0 }, by simp [toyCommit, hp]⟩
+          subst hp
+          exact ⟨_, rfl⟩
       · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
             simp only [List.mem_singleton] at hp
-            exact ⟨{ oid := 1, parents := [0], tree := fun _ => none, author := 0, message := 0 }, by simp [toyCommit, hp]⟩
+            subst hp
+            exact ⟨_, rfl⟩
         · exact Option.noConfusion hc
   parentRank := by
     intro child c hc parent hp
@@ -545,16 +547,20 @@ def toyDelta : MappingObservation where
 
 theorem toyDelta_is_singleton : IsSingletonDelta toyDelta := by
   refine ⟨by decide, by decide, ?_, by decide, by decide⟩
+  show ∀ c, c ∈ [1, 2, 3, 7] → ¬ c ∈ [1, 2, 3] → c = 7
   intro c hc hnc
-  simp [toyDelta] at hc hnc ⊢
-  rcases hc with h | h | h | h
-  · subst c
-    simp at hnc
-  · subst c
-    simp at hnc
-  · subst c
-    simp at hnc
-  · exact h
+  cases hc with
+  | head => exact absurd (List.Mem.head _) hnc
+  | tail _ h2 =>
+    cases h2 with
+    | head => exact absurd (List.Mem.tail _ (List.Mem.head _)) hnc
+    | tail _ h3 =>
+      cases h3 with
+      | head => exact absurd (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))) hnc
+      | tail _ h4 =>
+        cases h4 with
+        | head => rfl
+        | tail _ h5 => cases h5
 
 /-- The delta lemma identifies the new change on the toy delta. -/
 example (candidate : ChangeId)
