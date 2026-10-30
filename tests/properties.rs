@@ -8,7 +8,7 @@
 //! the properties the ledger and the operator boundary must hold in pure
 //! Rust, so they stay green in CI regardless of the external binaries.
 
-use passerelle_git_pijul::ledger::{Direction, Entry, Ledger, ledger_path};
+use passerelle_git_pijul::ledger::{ledger_path, Direction, Entry, Ledger};
 use passerelle_git_pijul::operator::{ConflictReport, OperatorQueue, PrContext, ResolutionChange};
 
 const SHA_ONE: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -125,6 +125,20 @@ fn ledger_rejects_malformed_git_oids_before_recording_or_persisting() {
     );
     let error = invalid.save(&path).expect_err("short Git OID must not be saved");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+    let mut invalid = Ledger::default();
+    invalid.by_sha.insert(
+        "short".into(),
+        Entry {
+            git_sha: "short".into(),
+            pijul_change: "change-one".into(),
+            pr: None,
+            direction: Direction::GitToPijul,
+            recorded_at: "t".into(),
+        },
+    );
+    let error = invalid.save(&path).expect_err("short Git OID must not be saved");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[test]
@@ -219,8 +233,16 @@ fn operator_boundary_is_producer_agnostic() {
         path: "src/lib.rs".into(),
         conflict_state: "<< Pijul conflict state >>".into(),
         prs: vec![
-            PrContext { number: 1, title: "A".into(), author: "alice".into() },
-            PrContext { number: 2, title: "B".into(), author: "bob".into() },
+            PrContext {
+                number: 1,
+                title: "A".into(),
+                author: "alice".into(),
+            },
+            PrContext {
+                number: 2,
+                title: "B".into(),
+                author: "bob".into(),
+            },
         ],
     });
     q.submit(ResolutionChange {

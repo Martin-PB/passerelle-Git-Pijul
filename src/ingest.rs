@@ -103,7 +103,10 @@ pub fn fetch_prs(remote: &str, prs: &[PullRequest], dest: &Path) -> std::io::Res
         if !pr.head_sha.trim().is_empty() {
             let actual = git(
                 dest,
-                ["rev-parse", &format!("refs/remotes/pr/{}^{{commit}}", pr.number)],
+                [
+                    "rev-parse",
+                    &format!("refs/remotes/pr/{}^{{commit}}", pr.number),
+                ],
             )?;
             if actual != pr.head_sha {
                 return Err(std::io::Error::new(

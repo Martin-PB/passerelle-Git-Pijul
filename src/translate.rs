@@ -84,10 +84,7 @@ fn git_status(repo: &Path, args: &[&str]) -> std::io::Result<ExitStatus> {
 
 /// Return the set of change hashes visible on a Pijul channel.
 pub fn changes_on_channel(pijul_repo: &Path, channel: &str) -> std::io::Result<BTreeSet<String>> {
-    let output = pijul(
-        pijul_repo,
-        &["log", "--hash-only", "--channel", channel],
-    )?;
+    let output = pijul(pijul_repo, &["log", "--hash-only", "--channel", channel])?;
     Ok(output
         .lines()
         .map(str::trim)
@@ -233,11 +230,7 @@ fn list_channels(pijul_repo: &Path) -> std::io::Result<BTreeSet<String>> {
         .collect())
 }
 
-fn ensure_channel_from(
-    pijul_repo: &Path,
-    source: &str,
-    target: &str,
-) -> std::io::Result<()> {
+fn ensure_channel_from(pijul_repo: &Path, source: &str, target: &str) -> std::io::Result<()> {
     let channels = list_channels(pijul_repo)?;
     if channels.contains(target) {
         return Ok(());
@@ -253,14 +246,18 @@ fn ensure_channel_from(
     Ok(())
 }
 
-fn pull_channel_into(
-    pijul_repo: &Path,
-    source: &str,
-    target: &str,
-) -> std::io::Result<()> {
+fn pull_channel_into(pijul_repo: &Path, source: &str, target: &str) -> std::io::Result<()> {
     pijul(
         pijul_repo,
-        &["pull", "--all", ".", "--from-channel", source, "--to-channel", target],
+        &[
+            "pull",
+            "--all",
+            ".",
+            "--from-channel",
+            source,
+            "--to-channel",
+            target,
+        ],
     )?;
     Ok(())
 }
@@ -360,9 +357,10 @@ pub fn translate_pr_from_mirror(
     // depend on the base OID channel still existing.
     let pr_channel = format!("pr-{}", pr.number);
     let base_channel = stable_base_channel_name(&base.sha);
-    let has_previous_import = ledger.by_sha.values().any(|entry| {
-        entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul
-    });
+    let has_previous_import = ledger
+        .by_sha
+        .values()
+        .any(|entry| entry.pr == Some(pr.number) && entry.direction == Direction::GitToPijul);
     let has_any_import = ledger
         .by_sha
         .values()
@@ -450,7 +448,11 @@ pub fn translate_pr_from_mirror(
 
     let commits = git(
         git_mirror,
-        &["rev-list", "--reverse", &format!("{}..{}", base.sha, pr.head_sha)],
+        &[
+            "rev-list",
+            "--reverse",
+            &format!("{}..{}", base.sha, pr.head_sha),
+        ],
     )?;
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
@@ -462,7 +464,10 @@ pub fn translate_pr_from_mirror(
             }
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
-                format!("Git SHA {sha} already has a ledger entry outside PR {}'s import", pr.number),
+                format!(
+                    "Git SHA {sha} already has a ledger entry outside PR {}'s import",
+                    pr.number
+                ),
             ));
         }
 
@@ -566,7 +571,6 @@ fn now_timestamp() -> String {
         .unwrap_or_else(|_| "unix:0".into())
 }
 
-
 #[cfg(test)]
 mod stable_base_channel_tests {
     use super::{parent_state_channel, stable_base_channel_name};
@@ -620,11 +624,17 @@ mod bare_mirror_tests {
         let work = root.path().join("work");
         let mirror = root.path().join("mirror.git");
         std::fs::create_dir_all(&work).expect("create worktree");
-        run_git(root.path(), &["init", "--bare", mirror.to_str().expect("UTF-8 mirror")]);
+        run_git(
+            root.path(),
+            &["init", "--bare", mirror.to_str().expect("UTF-8 mirror")],
+        );
         run_git(&work, &["init"]);
         run_git(&work, &["config", "user.name", "Synthetic Test"]);
-        run_git(&work, &["config", "user.email", "synthetic@example.invalid"]);
-        std::fs::write(work.join("file.txt"), "base\\n").expect("write fixture");
+        run_git(
+            &work,
+            &["config", "user.email", "synthetic@example.invalid"],
+        );
+        std::fs::write(work.join("file.txt"), "base\n").expect("write fixture");
         run_git(&work, &["add", "file.txt"]);
         run_git(&work, &["commit", "-m", "base"]);
         let sha = run_git(&work, &["rev-parse", "HEAD"]);
@@ -638,13 +648,12 @@ mod bare_mirror_tests {
         );
 
         assert_eq!(
-            git(&mirror, &["rev-parse", "refs/heads/main^{commit}"])
+            git(&mirror, &["rev-parse", "refs/heads/main^{{commit}}"])
                 .expect("rev-parse in bare mirror"),
             sha
         );
         assert_eq!(
-            git(&mirror, &["rev-list", "--reverse", "--all"])
-                .expect("rev-list in bare mirror"),
+            git(&mirror, &["rev-list", "--reverse", "--all"]).expect("rev-list in bare mirror"),
             sha
         );
         assert!(
