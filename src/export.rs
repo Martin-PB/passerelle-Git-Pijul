@@ -99,7 +99,12 @@ fn working_tree_id(mirror: &Path, pijul_repo: &Path, scratch: &Path) -> std::io:
     std::fs::create_dir_all(scratch)?;
     let index = scratch.join(format!("export-index-{}", std::process::id()));
     let result = (|| {
-        git(&mirror, &["read-tree", "--empty"], Some(&pijul_repo), Some(&index))?;
+        git(
+            &mirror,
+            &["read-tree", "--empty"],
+            Some(&pijul_repo),
+            Some(&index),
+        )?;
         git(
             &mirror,
             &[
@@ -224,7 +229,10 @@ pub fn export_linear_with_pijul_export(
         .spawn()?;
     let mut exporter = exporter;
     let stream = exporter.stdout.take().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "pijul-export stdout was not piped")
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "pijul-export stdout was not piped",
+        )
     })?;
     let import = Command::new("git")
         .args(["--git-dir"])
@@ -308,7 +316,12 @@ pub fn export_linear_with_pijul_export(
         ));
     }
 
-    let object_format = git(&git_mirror, &["rev-parse", "--show-object-format"], None, None)?;
+    let object_format = git(
+        &git_mirror,
+        &["rev-parse", "--show-object-format"],
+        None,
+        None,
+    )?;
     let zero = if object_format == "sha256" {
         "0000000000000000000000000000000000000000000000000000000000000000"
     } else {
@@ -329,7 +342,6 @@ pub fn export_linear_with_pijul_export(
     delete_ref(&git_mirror, &staging_ref);
     Ok(output_ref.to_owned())
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -8,7 +8,7 @@
 //! the properties the ledger and the operator boundary must hold in pure
 //! Rust, so they stay green in CI regardless of the external binaries.
 
-use passerelle_git_pijul::ledger::{Direction, Entry, Ledger, ledger_path};
+use passerelle_git_pijul::ledger::{ledger_path, Direction, Entry, Ledger};
 use passerelle_git_pijul::operator::{ConflictReport, OperatorQueue, PrContext, ResolutionChange};
 
 #[test]
@@ -117,8 +117,16 @@ fn operator_boundary_is_producer_agnostic() {
         path: "src/lib.rs".into(),
         conflict_state: "<< Pijul conflict state >>".into(),
         prs: vec![
-            PrContext { number: 1, title: "A".into(), author: "alice".into() },
-            PrContext { number: 2, title: "B".into(), author: "bob".into() },
+            PrContext {
+                number: 1,
+                title: "A".into(),
+                author: "alice".into(),
+            },
+            PrContext {
+                number: 2,
+                title: "B".into(),
+                author: "bob".into(),
+            },
         ],
     });
     q.submit(ResolutionChange {

@@ -162,13 +162,15 @@ def toyHistory : GitHistory where
           injection hc with hc'
           subst hc'
           simp only [List.mem_singleton] at hp
-          exact ⟨0, by rw [hp]; exact rfl⟩
+          subst hp
+          exact ⟨_, rfl⟩
       · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
             simp only [List.mem_singleton] at hp
-            exact ⟨1, by rw [hp]; exact rfl⟩
+            subst hp
+            exact ⟨_, rfl⟩
         · exact Option.noConfusion hc
   parentRank := by
     intro child c hc parent hp
@@ -200,17 +202,17 @@ def toyHistory : GitHistory where
     · next h =>
         injection hc with hc'
         subst hc'
-        rw [h]; rfl
+        rw [h]
     · split at hc
       · next h =>
           injection hc with hc'
           subst hc'
-          rw [h]; rfl
+          rw [h]
       · split at hc
         · next h =>
             injection hc with hc'
             subst hc'
-            rw [h]; rfl
+            rw [h]
         · exact Option.noConfusion hc
   parentsNoDup := by
     intro oid c hc
@@ -315,13 +317,13 @@ structure PatchModel where
 
 /-! ## 3. P0 equivalence criteria: content and conflicts
 
-P0 is restricted to synthetic repositories. Its candidate acceptance criterion
-is content equivalence plus equivalence of conflict observations for explicitly
-paired merge/apply scenarios. A Git commit does not intrinsically carry a
-conflict predicate: gitConflict must mean the result of a specified merge
-attempt in the test harness, and pijulConflict the result of the corresponding
-specified Pijul operation. Those operations and their pairing must be defined
-before this criterion can support a correctness claim.
+P0 is restricted to synthetic repositories. Its acceptance criterion has
+two parts: content equivalence where both sides have a materialized tree, and
+scenario-specific correctness for explicitly paired Git merge/Pijul operations.
+A Git conflict may disappear when the corresponding Pijul changes commute, so
+the contract must not equate Git and Pijul conflict booleans. Each scenario must
+name the Pijul operation trace and its expected outcome: either a conflict-free
+tree that preserves the expected content, or the expected native conflict set.
 
 Git commit topology is a separate objective and must not be smuggled into
 P0's definition. These predicates define a target contract; they do not assert
@@ -331,19 +333,13 @@ structure P0Observation where
   imported : Oid → Prop
   gitTree : Oid → GitTree
   pijulTree : Oid → GitTree
-  /-- Conflict result of a specified Git merge scenario, not an intrinsic
-      property of a commit. -/
-  gitConflict : Oid → Oid → Prop
-  /-- Conflict result of the corresponding specified Pijul operation. -/
-  pijulConflict : Oid → Oid → Prop
 
-/-- P0 preserves every imported commit's materialized content and preserves
-    the observed conflict result for each pair of imported tips. The test
-    harness must define which operation each pair denotes. -/
+/-- P0's content-equivalence criterion applies where both sides have a
+    materialized tree. Conflict behavior is evaluated by explicit paired
+    scenarios below, not by equating Git and Pijul conflict booleans: a Git
+    merge conflict may disappear when the corresponding Pijul changes commute. -/
 def P0Equivalent (o : P0Observation) : Prop :=
-  (∀ c, o.imported c → TreeEq (o.gitTree c) (o.pijulTree c)) ∧
-  (∀ a b, o.imported a → o.imported b →
-    (o.gitConflict a b ↔ o.pijulConflict a b))
+  ∀ c, o.imported c → TreeEq (o.gitTree c) (o.pijulTree c)
 
 /-- Exact parent-edge preservation is a distinct topology objective, not part
     of P0Equivalent. Its concrete target representation remains to be chosen. -/
@@ -351,22 +347,17 @@ def GitTopologyEquivalent (h : GitHistory)
     (translatedParent : Oid → Oid → Prop) : Prop :=
   ∀ p c, GitHistory.ParentEdge h p c ↔ translatedParent p c
 
-/-- `P0Equivalent` is satisfiable but must not be accepted vacuously: with an
-    empty import set both conjuncts hold trivially, which is exactly why T3
-    must anchor `imported` to a concrete range predicate. -/
+
+/-- A vacuous observation illustrates why T3 must anchor `imported` to a
+    concrete range predicate before this criterion can serve as acceptance. -/
 def emptyObservation : P0Observation where
   imported := fun _ => False
   gitTree := fun _ _ => none
   pijulTree := fun _ _ => none
-  gitConflict := fun _ _ => False
-  pijulConflict := fun _ _ => False
 
 example : P0Equivalent emptyObservation := by
-  refine ⟨?_, ?_⟩
-  · intro c hc
-    simp [emptyObservation] at hc
-  · intro a b ha hb
-    exact Iff.rfl
+  intro c hc
+  simp [emptyObservation] at hc
 
 /-! ## 4. Ledger contract -/
 
@@ -544,23 +535,21 @@ def toyDelta : MappingObservation where
   after := [1, 2, 3, 7]
 
 theorem toyDelta_is_singleton : IsSingletonDelta toyDelta := by
-  refine ⟨?_, ?_, ?_, by simp, by simp⟩
-  · decide
-  · decide
-  · intro c hc hnc
-    simp only [toyDelta] at hc hnc ⊢
-    by_cases h7 : c = 7
-    · exact h7
-    · exfalso
-      cases hc with
-      | head => exact hnc (List.Mem.head _)
-      | tail hc => cases hc with
-        | head => exact hnc (List.Mem.tail _ (List.Mem.head _))
-        | tail hc => cases hc with
-          | head => exact hnc (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
-          | tail hc => cases hc with
-            | head => exact h7 rfl
-            | tail hc => cases hc
+  refine ⟨by decide, by decide, ?_, by decide, by decide⟩
+  show ∀ c, c ∈ [1, 2, 3, 7] → ¬ c ∈ [1, 2, 3] → c = 7
+  intro c hc hnc
+  cases hc with
+  | head => exact absurd (List.Mem.head _) hnc
+  | tail _ h2 =>
+    cases h2 with
+    | head => exact absurd (List.Mem.tail _ (List.Mem.head _)) hnc
+    | tail _ h3 =>
+      cases h3 with
+      | head => exact absurd (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))) hnc
+      | tail _ h4 =>
+        cases h4 with
+        | head => rfl
+        | tail _ h5 => cases h5
 
 /-- The delta lemma identifies the new change on the toy delta. -/
 example (candidate : ChangeId)
@@ -685,6 +674,7 @@ theorem observableTreeEq_trans {a b c : ObservableTree}
   intro path
   exact Eq.trans (hab path) (hbc path)
 
+
 /-- Empty observable trees are observationally equal; this exercises the
     section 7 definitions on a concrete instance. -/
 example :
@@ -744,6 +734,14 @@ def MappingSound (s : PlatformState) : Prop :=
     (∃ commit, s.git.history.commit oid = some commit) ∧
     change ∈ s.pijul.changes
 
+/-- One Git commit OID cannot be mapped to two different Pijul change
+    identities. This is the platform-level form of the ledger's functional
+    mapping invariant; it does not require distinct Git commits to map to
+    distinct changes. -/
+def MappingFunctional (s : PlatformState) : Prop :=
+  ∀ oid c₁ c₂, s.ledger.links oid c₁ →
+    s.ledger.links oid c₂ → c₁ = c₂
+
 /-- Every imported commit that the translation contract says requires a
     change mapping has at least one mapping. Empty/metadata-only commits may
     set requiresChangeMapping to false; their handling must still be specified
@@ -771,27 +769,113 @@ def DependencyClosed (p : PijulView) : Prop :=
 def ArbitrationRequired (p : PijulView) : Prop :=
   p.nativeConflicts ≠ []
 
-/-- A conflict scenario pairs a concrete Git merge attempt with a concrete
-    Pijul operation over the corresponding concurrent work. It records the
-    outcomes separately: there is no axiom that their conflict booleans agree. -/
+/-- One explicitly named operation applied to a pair of Pijul changes.
+    A concrete harness must populate the trace from the selected Pijul CLI/API;
+    these labels do not assert upstream operation semantics. -/
+structure PijulOperationStep where
+  operation : NativeConflictOperation
+  leftChange : ChangeId
+  rightChange : ChangeId
+  deriving DecidableEq, Repr
+
+/-- The Pijul side of a paired scenario records the exact base/branch change
+    sets and the sequence of operations attempted. The resulting native
+    conflicts and materialized tree are observations, not inferred from Git. -/
+structure PijulOperationTrace where
+  baseChanges : List ChangeId
+  leftChanges : List ChangeId
+  rightChanges : List ChangeId
+  steps : List PijulOperationStep
+  conflicts : List NativeConflict
+  materializedTree : ObservableTree
+
+/-- Expected outcome for one paired scenario. A conflict-free expectation
+    includes the exact tree to prevent "no conflict" from hiding dropped work;
+    a conflict expectation names the native conflict set that must be exposed. -/
+inductive ExpectedPijulOutcome where
+  | conflictFree (tree : ObservableTree)
+  | nativeConflictSet (conflicts : List NativeConflict)
+
+/-- Conflict sets are compared extensionally so output ordering does not
+    change the meaning of a scenario. -/
+def SameNativeConflictSet (actual expected : List NativeConflict) : Prop :=
+  ∀ conflict, conflict ∈ actual ↔ conflict ∈ expected
+
+/-- Every reported native conflict must be backed by a matching step
+    in the recorded Pijul operation trace. This prevents a scenario from
+    attaching an unrelated conflict list to an operation that was never tried. -/
+def TraceConflictsHaveEvidence (trace : PijulOperationTrace) : Prop :=
+  ∀ conflict, conflict ∈ trace.conflicts →
+    ∃ step, step ∈ trace.steps ∧
+      step.operation = conflict.operation ∧
+      step.leftChange = conflict.leftChange ∧
+      step.rightChange = conflict.rightChange
+
+/-- A conflict scenario pairs a concrete Git merge attempt with an explicit
+    Pijul operation trace over the corresponding concurrent work. The
+    expected Pijul outcome is scenario-specific; Git and Pijul conflict
+    booleans are deliberately not assumed equivalent. -/
 structure ConflictScenario where
   base : Oid
   leftTip : Oid
   rightTip : Oid
   gitMergeReportedConflict : Bool
-  pijulConflicts : List NativeConflict
-  pijulMaterializedTree : ObservableTree
+  pijulTrace : PijulOperationTrace
+  expectedPijulOutcome : ExpectedPijulOutcome
+
+/-- A Git commit's mapped changes must be present in the Pijul state
+    supplied as the corresponding operation input. Additional Pijul-native
+    changes are allowed; this predicate only prevents omission of imported
+    Git history from the paired operation. -/
+def ChangeMappedAtTip (history : GitHistory) (ledger : BridgeLedger)
+    (tip : Oid) (change : ChangeId) : Prop :=
+  ∃ oid, GitHistory.Ancestor history oid tip ∧ ledger.links oid change
+
+/-- Tie the trace's base/left/right change sets to the actual Git tips and
+    recorded provenance. The base must be an ancestor of both tips, and every
+    mapped change reachable at each tip must occur in that side's Pijul input.
+    This is an explicit proof obligation, not an assumption about the importer. -/
+def ScenarioInputsIncludeMappedGitChanges (history : GitHistory)
+    (ledger : BridgeLedger) (scenario : ConflictScenario) : Prop :=
+  (∃ commit, history.commit scenario.base = some commit) ∧
+  (∃ commit, history.commit scenario.leftTip = some commit) ∧
+  (∃ commit, history.commit scenario.rightTip = some commit) ∧
+  GitHistory.Ancestor history scenario.base scenario.leftTip ∧
+  GitHistory.Ancestor history scenario.base scenario.rightTip ∧
+  (∀ change, ChangeMappedAtTip history ledger scenario.base change →
+    change ∈ scenario.pijulTrace.baseChanges) ∧
+  (∀ change, ChangeMappedAtTip history ledger scenario.leftTip change →
+    change ∈ scenario.pijulTrace.leftChanges) ∧
+  (∀ change, ChangeMappedAtTip history ledger scenario.rightTip change →
+    change ∈ scenario.pijulTrace.rightChanges)
+
+/-- The paired scenario is correct only if the trace inputs contain the
+    mapped Git history and Pijul either materializes the expected conflict-free
+    tree without native conflicts, or reports the expected non-empty native
+    conflict set with evidence in the operation trace. This is a proof target,
+    not a theorem that the current importer or Pijul CLI satisfies it. -/
+def ConflictScenarioCorrect (history : GitHistory) (ledger : BridgeLedger)
+    (scenario : ConflictScenario) : Prop :=
+  ScenarioInputsIncludeMappedGitChanges history ledger scenario ∧
+    (match scenario.expectedPijulOutcome with
+    | .conflictFree expectedTree =>
+        scenario.pijulTrace.conflicts = [] ∧
+          ObservableTreeEq scenario.pijulTrace.materializedTree expectedTree
+    | .nativeConflictSet expectedConflicts =>
+        expectedConflicts ≠ [] ∧
+          SameNativeConflictSet scenario.pijulTrace.conflicts expectedConflicts ∧
+          TraceConflictsHaveEvidence scenario.pijulTrace)
 
 /-- A Git merge conflict has been handled without arbitration only when the
     paired Pijul operation reports no native conflict. This is a classification
     predicate, not a theorem that such a Pijul operation always exists. -/
 def GitConflictHasNoPijulArbitrationSignal (scenario : ConflictScenario) : Prop :=
-  scenario.gitMergeReportedConflict = true ∧ scenario.pijulConflicts = []
+  scenario.gitMergeReportedConflict = true ∧ scenario.pijulTrace.conflicts = []
 
 /-- The arbitration signal for a scenario is determined solely by native
     Pijul conflicts. Git's conflict result alone never triggers arbitration. -/
 def ScenarioRequiresArbitration (scenario : ConflictScenario) : Prop :=
-  scenario.pijulConflicts ≠ []
+  scenario.pijulTrace.conflicts ≠ []
 
 /-- The state is coherent at a quiescent synchronization point when the
     materialized trees agree (under the normalized observation relation) and
@@ -801,6 +885,7 @@ def ScenarioRequiresArbitration (scenario : ConflictScenario) : Prop :=
 def CoherentCheckpoint (s : PlatformState) : Prop :=
   ObservableTreeEq (s.git.treeAt s.git.tip) s.pijul.tree ∧
   MappingSound s ∧
+  MappingFunctional s ∧
   MappingCoverage s ∧
   BridgeChangeTraceability s ∧
   DependencyClosed s.pijul ∧
@@ -812,6 +897,7 @@ def CoherentCheckpoint (s : PlatformState) : Prop :=
 def PendingArbitration (s : PlatformState) : Prop :=
   s.pijul.nativeConflicts ≠ [] ∧
   MappingSound s ∧
+  MappingFunctional s ∧
   MappingCoverage s ∧
   BridgeChangeTraceability s ∧
   DependencyClosed s.pijul
