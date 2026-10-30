@@ -123,8 +123,7 @@ fn read_reported_file(workdir: &Path, relative: &Path) -> String {
             .into();
     }
     std::fs::read_to_string(resolved).unwrap_or_else(|_| {
-        "Pijul reported a conflict path that is binary or unreadable; content was not read."
-            .into()
+        "Pijul reported a conflict path that is binary or unreadable; content was not read.".into()
     })
 }
 
@@ -152,7 +151,9 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
             "On branch integration" | "On channel integration" | "On channel: integration"
         ) {
             if section.is_some() {
-                return Err(invalid("unexpected integration header inside a status section"));
+                return Err(invalid(
+                    "unexpected integration header inside a status section",
+                ));
             }
             continue;
         }
@@ -310,7 +311,9 @@ mod tests {
             "On channel: integration\n",
         ] {
             assert!(matches!(
-                parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+                parse_status_output(Path::new("."), clean)
+                    .unwrap()
+                    .as_slice(),
                 [Triage::Clean]
             ));
         }
@@ -353,7 +356,9 @@ mod tests {
     fn channel_header_variant_is_supported() {
         let status = "On channel integration\n";
         assert!(matches!(
-            parse_status_output(Path::new("."), status).unwrap().as_slice(),
+            parse_status_output(Path::new("."), status)
+                .unwrap()
+                .as_slice(),
             [Triage::Clean]
         ));
     }
