@@ -8,6 +8,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
@@ -44,13 +47,61 @@ impl Ledger {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
+    /// Persist the ledger with an atomic same-directory replacement.
+    ///
+    /// A process interruption during serialization or writing must not leave
+    /// the canonical ledger truncated: write and sync a unique temporary file,
+    /// then rename it over the destination.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
+        use std::io::Write;
+
         let raw = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, raw)
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        let filename = path.file_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "ledger path must name a file",
+            )
+        })?;
+
+        let (temporary_path, mut temporary_file) = loop {
+            let id = TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let temporary_path = parent.join(format!(
+                ".{}.{}.{}.tmp",
+                filename.to_string_lossy(),
+                std::process::id(),
+                id
+            ));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary_path)
+            {
+                Ok(file) => break (temporary_path, file),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        };
+
+        let result = (|| {
+            temporary_file.write_all(raw.as_bytes())?;
+            temporary_file.sync_all()?;
+            drop(temporary_file);
+            std::fs::rename(&temporary_path, path)?;
+            // Make the rename durable across a host crash on filesystems that
+            // support syncing directory metadata (the intended deployment is Linux).
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary_path);
+        }
+        result
     }
 
     /// Record a translation. Returns false if this SHA was already ledged

@@ -64,6 +64,48 @@ fn ledger_survives_save_load_cycle() {
 }
 
 #[test]
+fn ledger_save_atomically_replaces_existing_file_and_cleans_temporary_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_path(dir.path());
+    let mut first = Ledger::default();
+    first.record(Entry {
+        git_sha: "sha-one".into(),
+        pijul_change: "change-one".into(),
+        pr: Some(1),
+        direction: Direction::GitToPijul,
+        recorded_at: "t1".into(),
+    });
+    first.save(&path).unwrap();
+
+    let mut second = Ledger::default();
+    second.record(Entry {
+        git_sha: "sha-one".into(),
+        pijul_change: "change-one".into(),
+        pr: Some(1),
+        direction: Direction::GitToPijul,
+        recorded_at: "t1".into(),
+    });
+    second.record(Entry {
+        git_sha: "sha-two".into(),
+        pijul_change: "change-two".into(),
+        pr: Some(2),
+        direction: Direction::GitToPijul,
+        recorded_at: "t2".into(),
+    });
+    second.save(&path).unwrap();
+
+    let loaded = Ledger::load(&path).unwrap();
+    assert_eq!(loaded.get("sha-one").unwrap().pijul_change, "change-one");
+    assert_eq!(loaded.get("sha-two").unwrap().pijul_change, "change-two");
+
+    let files: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(files, vec![std::ffi::OsString::from("gateway-ledger.json")]);
+}
+
+#[test]
 fn operator_boundary_is_producer_agnostic() {
     // The queue accepts a ResolutionChange and nothing else. Whether the
     // change was produced by a lone operator or an operator assisted by an
