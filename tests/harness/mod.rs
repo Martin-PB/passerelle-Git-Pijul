@@ -51,9 +51,27 @@ pub fn corpus() -> Vec<Scenario> {
                 ("src/lib.rs", "fn main() {\n    println!(\"hello\");\n}\n"),
             ],
             branches: vec![
-                ("pr-a", vec![("src/lib.rs", "fn main() {\n    println!(\"from a\");\n}\n"), ("docs/a.md", "a\n")]),
-                ("pr-b", vec![("src/lib.rs", "fn main() {\n    println!(\"from b\");\n}\n"), ("docs/b.md", "b\n")]),
-                ("pr-c", vec![("src/lib.rs", "fn main() {\n    println!(\"from c\");\n}\n"), ("docs/c.md", "c\n")]),
+                (
+                    "pr-a",
+                    vec![
+                        ("src/lib.rs", "fn main() {\n    println!(\"from a\");\n}\n"),
+                        ("docs/a.md", "a\n"),
+                    ],
+                ),
+                (
+                    "pr-b",
+                    vec![
+                        ("src/lib.rs", "fn main() {\n    println!(\"from b\");\n}\n"),
+                        ("docs/b.md", "b\n"),
+                    ],
+                ),
+                (
+                    "pr-c",
+                    vec![
+                        ("src/lib.rs", "fn main() {\n    println!(\"from c\");\n}\n"),
+                        ("docs/c.md", "c\n"),
+                    ],
+                ),
             ],
             conflicting_pairs: vec![("pr-a", "pr-b"), ("pr-a", "pr-c"), ("pr-b", "pr-c")],
         },
@@ -72,11 +90,17 @@ pub fn corpus() -> Vec<Scenario> {
             branches: vec![
                 ("pr-a", vec![("src/a.rs", "// a edited by pr-a\n")]),
                 ("pr-b", vec![("src/b.rs", "// b edited by pr-b\n")]),
-                ("pr-c", vec![
-                    ("src/shared.rs", "// shared edited by pr-c\n"),
-                    ("docs/c.md", "c\n"),
-                ]),
-                ("pr-d", vec![("src/shared.rs", "// shared edited by pr-d\n")]),
+                (
+                    "pr-c",
+                    vec![
+                        ("src/shared.rs", "// shared edited by pr-c\n"),
+                        ("docs/c.md", "c\n"),
+                    ],
+                ),
+                (
+                    "pr-d",
+                    vec![("src/shared.rs", "// shared edited by pr-d\n")],
+                ),
             ],
             conflicting_pairs: vec![("pr-c", "pr-d")],
         },
@@ -116,7 +140,11 @@ pub fn snapshot_text(dir: &Path) -> std::io::Result<BTreeMap<String, String>> {
                 continue; // métadonnées de VCS, pas du texte transporté
             }
             let path = entry.path();
-            let rel = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+            let rel = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
             if path.is_dir() {
                 walk(&path, &rel, map)?;
             } else if path.is_file() {
@@ -142,13 +170,18 @@ pub fn assert_text_lossless(
     for (path, expected) in before {
         match after.get(path) {
             Some(actual) if actual == expected => {}
-            Some(actual) => problems.push(format!("  {path}: contenu différent\n    attendu: {:?}\n    obtenu:  {:?}", expected, actual)),
+            Some(actual) => problems.push(format!(
+                "  {path}: contenu différent\n    attendu: {:?}\n    obtenu:  {:?}",
+                expected, actual
+            )),
             None => problems.push(format!("  {path}: fichier perdu à l'export")),
         }
     }
     for path in after.keys() {
         if !before.contains_key(path) {
-            problems.push(format!("  {path}: fichier apparu à l'export (pas dans l'import)"));
+            problems.push(format!(
+                "  {path}: fichier apparu à l'export (pas dans l'import)"
+            ));
         }
     }
     assert!(

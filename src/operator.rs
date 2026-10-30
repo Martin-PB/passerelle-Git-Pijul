@@ -62,7 +62,6 @@ impl OperatorQueue {
     }
 }
 
-
 #[derive(Debug, Serialize)]
 struct AuditEvent<'a> {
     event: &'static str,
@@ -80,7 +79,9 @@ pub fn apply_resolution(
     note: Option<&str>,
 ) -> std::io::Result<()> {
     if change_hash.trim().is_empty()
-        || !change_hash.chars().all(|character| character.is_ascii_alphanumeric())
+        || !change_hash
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
     {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -145,7 +146,6 @@ fn append_audit(
     writeln!(file, "{serialized}")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{append_audit, apply_resolution};
@@ -154,18 +154,27 @@ mod tests {
     #[test]
     fn audit_events_append_as_independent_json_lines() {
         let root = tempfile::tempdir().expect("temp root");
-        append_audit(root.path(), "resolution-attempted", "ABC123", Some("keep both"))
-            .expect("append first event");
-        append_audit(root.path(), "resolution-applied", "ABC123", Some("keep both"))
-            .expect("append second event");
+        append_audit(
+            root.path(),
+            "resolution-attempted",
+            "ABC123",
+            Some("keep both"),
+        )
+        .expect("append first event");
+        append_audit(
+            root.path(),
+            "resolution-applied",
+            "ABC123",
+            Some("keep both"),
+        )
+        .expect("append second event");
 
-        let raw = std::fs::read_to_string(root.path().join("gateway-audit.jsonl"))
-            .expect("read audit");
+        let raw =
+            std::fs::read_to_string(root.path().join("gateway-audit.jsonl")).expect("read audit");
         let lines: Vec<_> = raw.lines().collect();
         assert_eq!(lines.len(), 2);
         let first: serde_json::Value = serde_json::from_str(lines[0]).expect("first JSON line");
-        let second: serde_json::Value =
-            serde_json::from_str(lines[1]).expect("second JSON line");
+        let second: serde_json::Value = serde_json::from_str(lines[1]).expect("second JSON line");
         assert_eq!(first["event"], "resolution-attempted");
         assert_eq!(second["event"], "resolution-applied");
         assert_eq!(second["note"], "keep both");

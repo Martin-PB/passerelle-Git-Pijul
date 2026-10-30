@@ -116,9 +116,9 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     let mut reports = Vec::with_capacity(paths.len());
     for path in paths {
         let relative = Path::new(&path);
-        let safe = relative.components().all(|component| {
-            matches!(component, Component::Normal(_) | Component::CurDir)
-        });
+        let safe = relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
         let conflict_state = if safe {
             let file = workdir.join(relative);
             match std::fs::symlink_metadata(&file) {
@@ -145,7 +145,6 @@ fn parse_status_output(workdir: &Path, status: &str) -> std::io::Result<Vec<Tria
     Ok(reports)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{parse_status_output, Triage};
@@ -155,7 +154,9 @@ mod tests {
     fn clean_status_requires_an_explicit_integration_channel() {
         let clean = "On branch integration\n";
         assert!(matches!(
-            parse_status_output(Path::new("."), clean).unwrap().as_slice(),
+            parse_status_output(Path::new("."), clean)
+                .unwrap()
+                .as_slice(),
             [Triage::Clean]
         ));
         assert_eq!(
@@ -169,8 +170,7 @@ mod tests {
     #[test]
     fn unresolved_conflict_is_reported_for_operator() {
         let root = tempfile::tempdir().expect("temp root");
-        std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n")
-            .expect("write file");
+        std::fs::write(root.path().join("conflict.txt"), "<<<<<<< conflict\n").expect("write file");
         let status = "On branch integration\n\nUnresolved conflicts:\n  (fix conflicts and record the resolution)\n    conflict.txt\n";
         let result = parse_status_output(root.path(), status).unwrap();
         match &result[0] {

@@ -79,7 +79,10 @@ fn snapshot_text_is_deterministic() {
     let err = std::panic::catch_unwind(|| {
         assert_text_lossless(&snap, &after, "test");
     });
-    assert!(err.is_err(), "le comparateur doit rejeter un arbre différent");
+    assert!(
+        err.is_err(),
+        "le comparateur doit rejeter un arbre différent"
+    );
     let expected = snap.clone();
     assert_text_lossless(&expected, &snap, "test identité");
 }
@@ -99,7 +102,13 @@ fn build_mirror(
     let (ok, output) = harness::run(
         Path::new("."),
         "git",
-        &["--git-dir", mirror_arg, "update-ref", "refs/remotes/base/main", base_sha],
+        &[
+            "--git-dir",
+            mirror_arg,
+            "update-ref",
+            "refs/remotes/base/main",
+            base_sha,
+        ],
     );
     assert!(ok, "pin base ref failed: {output}");
     for pr in prs {
@@ -120,9 +129,7 @@ fn build_mirror(
 
 #[test]
 fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
-    if !skip_unless(harness::have("git"), "git")
-        || !skip_unless(harness::have("pijul"), "pijul")
-    {
+    if !skip_unless(harness::have("git"), "git") || !skip_unless(harness::have("pijul"), "pijul") {
         return;
     }
 
@@ -166,11 +173,12 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
                 pr,
                 &mut ledger,
             )
-            .unwrap_or_else(|error| panic!("import {} failed in {}: {error}", pr.number, scenario.name));
+            .unwrap_or_else(|error| {
+                panic!("import {} failed in {}: {error}", pr.number, scenario.name)
+            });
         }
-        let triage =
-            passerelle_git_pijul::triage::triage_integration_channel(&pijul_repo)
-                .unwrap_or_else(|error| panic!("triage failed in {}: {error}", scenario.name));
+        let triage = passerelle_git_pijul::triage::triage_integration_channel(&pijul_repo)
+            .unwrap_or_else(|error| panic!("triage failed in {}: {error}", scenario.name));
         assert!(
             triage
                 .iter()
@@ -192,9 +200,15 @@ fn synthetic_import_pipeline_reports_pijul_conflicts_when_available() {
 #[ignore = "test d'intégration bloquant, à lancer explicitement avec RUN_SIBLING_RERUN_TEST=1"]
 fn sibling_branches_then_rerun_preserves_base_and_mapping() {
     assert!(harness::have("git"), "pré-requis manquant : git");
-    assert!(harness::have("pijul"), "pré-requis manquant : pijul (beta.24 attendue)");
+    assert!(
+        harness::have("pijul"),
+        "pré-requis manquant : pijul (beta.24 attendue)"
+    );
     let (version_ok, version) = harness::run(Path::new("."), "pijul", &["--version"]);
-    assert!(version_ok, "impossible de lire la version de Pijul : {version}");
+    assert!(
+        version_ok,
+        "impossible de lire la version de Pijul : {version}"
+    );
     assert!(
         version.contains("1.0.0-beta.24"),
         "ce test cible Pijul 1.0.0-beta.24, version observée : {version}"
@@ -239,17 +253,25 @@ fn sibling_branches_then_rerun_preserves_base_and_mapping() {
 
     for pr in &prs {
         passerelle_git_pijul::translate::translate_pr_from_mirror(
-            &mirror, &pijul_repo, &scratch, &base, pr, &mut ledger,
+            &mirror,
+            &pijul_repo,
+            &scratch,
+            &base,
+            pr,
+            &mut ledger,
         )
-        .unwrap_or_else(|error| {
-            panic!("sibling import {} failed: {error}", pr.number)
-        });
+        .unwrap_or_else(|error| panic!("sibling import {} failed: {error}", pr.number));
     }
 
     // Re-run the first PR after the second sibling has been imported. This
     // catches loss of the common-base OID channel and ledger/checkpoint drift.
     passerelle_git_pijul::translate::translate_pr_from_mirror(
-        &mirror, &pijul_repo, &scratch, &base, &prs[0], &mut ledger,
+        &mirror,
+        &pijul_repo,
+        &scratch,
+        &base,
+        &prs[0],
+        &mut ledger,
     )
     .unwrap_or_else(|error| panic!("rerun of first sibling PR failed: {error}"));
 
@@ -346,7 +368,9 @@ fn roundtrip_property_end_to_end() {
                 pr,
                 &mut ledger,
             )
-            .unwrap_or_else(|error| panic!("import {} failed in {}: {error}", pr.number, scenario.name));
+            .unwrap_or_else(|error| {
+                panic!("import {} failed in {}: {error}", pr.number, scenario.name)
+            });
         }
 
         let triage = passerelle_git_pijul::triage::triage_integration_channel(&pijul_repo)
