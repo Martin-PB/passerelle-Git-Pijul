@@ -282,7 +282,7 @@ fn parent_state_channel<'a>(
     base_sha: &str,
     stable_base_channel: &'a str,
 ) -> &'a str {
-    if parent_sha == base.sha {
+    if parent_sha == base_sha {
         stable_base_channel
     } else {
         parent_sha
