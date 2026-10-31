@@ -454,6 +454,7 @@ pub fn translate_pr_from_mirror(
             &format!("{}..{}", base.sha, pr.head_sha),
         ],
     )?;
+    let ledger_file = crate::ledger::ledger_path(pijul_repo.parent().unwrap_or(pijul_repo));
     for sha in commits.lines().map(str::trim).filter(|sha| !sha.is_empty()) {
         // A rerun must not re-import old commits: beta.24's OID cache may
         // refer to channels it has already dropped. The retained PR tip is
@@ -500,25 +501,87 @@ pub fn translate_pr_from_mirror(
         // Preserve this commit's state before a later child import can remove
         // its OID-named channel.
         ensure_channel_from(pijul_repo, sha, &stable_commit_channel_name(sha))?;
-        if !ledger.record(Entry {
-            git_sha: sha.to_owned(),
-            pijul_change: change,
-            pr: Some(pr.number),
-            direction: Direction::GitToPijul,
-            recorded_at: now_timestamp(),
-        }) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("Git SHA {sha} is already mapped to a different Pijul change"),
-            ));
-        }
+        record_mapping_and_checkpoint(
+            ledger,
+            Entry {
+                git_sha: sha.to_owned(),
+                pijul_change: change,
+                pr: Some(pr.number),
+                direction: Direction::GitToPijul,
+                recorded_at: now_timestamp(),
+            },
+            &ledger_file,
+        )?;
     }
 
     pull_channel_into(pijul_repo, &pr.head_sha, &pr_channel)?;
     pull_channel_into(pijul_repo, &format!("pr-{}", pr.number), "integration")?;
-    let ledger_root = pijul_repo.parent().unwrap_or(pijul_repo);
-    ledger.save(&crate::ledger::ledger_path(ledger_root))?;
+    ledger.save(&ledger_file)?;
     Ok(())
+}
+
+/// Record a completed SHA-to-change observation and checkpoint it immediately.
+/// This preserves earlier successful mappings if a later commit import fails.
+fn record_mapping_and_checkpoint(
+    ledger: &mut Ledger,
+    entry: Entry,
+    ledger_file: &Path,
+) -> std::io::Result<()> {
+    let git_sha = entry.git_sha.clone();
+    if !ledger.record(entry) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("Git SHA {git_sha} is already mapped to a different Pijul change"),
+        ));
+    }
+    ledger.save(ledger_file)
+}
+
+#[cfg(test)]
+mod ledger_checkpoint_tests {
+    use super::record_mapping_and_checkpoint;
+    use crate::ledger::{ledger_path, Direction, Entry, Ledger};
+
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn entry(pijul_change: &str) -> Entry {
+        Entry {
+            git_sha: SHA.into(),
+            pijul_change: pijul_change.into(),
+            pr: Some(42),
+            direction: Direction::GitToPijul,
+            recorded_at: "test-time".into(),
+        }
+    }
+
+    #[test]
+    fn completed_mapping_is_persisted_immediately() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+
+        record_mapping_and_checkpoint(&mut ledger, entry("change-one"), &path)
+            .expect("checkpoint mapping");
+
+        let loaded = Ledger::load(&path).expect("load checkpoint");
+        assert_eq!(loaded.get(SHA).unwrap().pijul_change, "change-one");
+    }
+
+    #[test]
+    fn conflicting_mapping_does_not_replace_persisted_checkpoint() {
+        let dir = tempfile::tempdir().expect("temporary ledger directory");
+        let path = ledger_path(dir.path());
+        let mut ledger = Ledger::default();
+        record_mapping_and_checkpoint(&mut ledger, entry("change-one"), &path)
+            .expect("checkpoint original mapping");
+
+        let error = record_mapping_and_checkpoint(&mut ledger, entry("different-change"), &path)
+            .expect_err("a conflicting mapping must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let loaded = Ledger::load(&path).expect("load original checkpoint");
+        assert_eq!(loaded.get(SHA).unwrap().pijul_change, "change-one");
+    }
 }
 
 /// Translate one PR into a Pijul channel `pr-<n>`.
