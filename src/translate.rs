@@ -663,4 +663,3 @@ mod bare_mirror_tests {
         );
     }
 }
-
