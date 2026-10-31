@@ -648,7 +648,7 @@ mod bare_mirror_tests {
         );
 
         assert_eq!(
-            git(&mirror, &["rev-parse", "refs/heads/main^{{commit}}"])
+            git(&mirror, &["rev-parse", "refs/heads/main^{commit}"])
                 .expect("rev-parse in bare mirror"),
             sha
         );
@@ -663,3 +663,4 @@ mod bare_mirror_tests {
         );
     }
 }
+
