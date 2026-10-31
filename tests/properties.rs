@@ -26,7 +26,10 @@ fn ledger_is_idempotent_on_re_record() {
     };
     assert!(l.record(e(SHA_ONE)));
     assert!(l.record(e(SHA_ONE))); // re-record same: fine
-    assert_eq!(l.get(SHA_ONE).unwrap().pijul_change, format!("change-{SHA_ONE}"));
+    assert_eq!(
+        l.get(SHA_ONE).unwrap().pijul_change,
+        format!("change-{SHA_ONE}")
+    );
 }
 
 #[test]
@@ -123,7 +126,9 @@ fn ledger_rejects_malformed_git_oids_before_recording_or_persisting() {
             recorded_at: "t".into(),
         },
     );
-    let error = invalid.save(&path).expect_err("short Git OID must not be saved");
+    let error = invalid
+        .save(&path)
+        .expect_err("short Git OID must not be saved");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
@@ -143,7 +148,9 @@ fn ledger_save_rejects_public_map_entries_that_break_invariants() {
         },
     );
 
-    let error = ledger.save(&path).expect_err("inconsistent map must not be persisted");
+    let error = ledger
+        .save(&path)
+        .expect_err("inconsistent map must not be persisted");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     assert!(!path.exists());
 }
